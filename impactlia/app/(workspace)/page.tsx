@@ -1,28 +1,13 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { AnalysisRunList } from "@/components/analysis-run-list";
+import { listAnalysisRuns } from "@/lib/analysis-runs";
 import { getWorkspace } from "@/lib/workspace";
 
 const roleLabels: Record<string, string> = {
   "org:admin": "Admin",
   "org:member": "Member",
 };
-
-// The path a change takes through Impactlia. It is a real sequence, which is
-// why it is numbered.
-const steps = [
-  {
-    title: "Connect a repository",
-    detail: "Impactlia reads its structure and dependencies.",
-  },
-  {
-    title: "Select a pull request",
-    detail: "The changed files are matched against that structure.",
-  },
-  {
-    title: "Read the impact analysis",
-    detail: "What the change could affect, and what to review or test.",
-  },
-];
 
 async function OrganizationContext() {
   const workspace = await getWorkspace();
@@ -32,57 +17,61 @@ async function OrganizationContext() {
       <h1 className="text-3xl font-semibold tracking-tight">
         {workspace.organizationName}
       </h1>
-      <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
-        <dt className="text-muted">Your role</dt>
-        <dd>
-          {roleLabels[workspace.organizationRole] ??
-            workspace.organizationRole}
-        </dd>
-        <dt className="text-muted">Organization ID</dt>
-        <dd className="font-mono text-[0.8125rem] break-all">
-          {workspace.organizationId}
-        </dd>
+      <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-1 text-sm">
+        <div className="flex gap-2">
+          <dt className="text-muted">Your role</dt>
+          <dd>
+            {roleLabels[workspace.organizationRole] ??
+              workspace.organizationRole}
+          </dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="text-muted">Organization ID</dt>
+          <dd className="font-mono text-[0.8125rem] leading-5 break-all">
+            {workspace.organizationId}
+          </dd>
+        </div>
       </dl>
     </>
   );
 }
 
+async function AnalysisRuns() {
+  // Resolved first so a session without an organization is redirected before
+  // anything is read.
+  await getWorkspace();
+  return <AnalysisRunList runs={await listAnalysisRuns()} />;
+}
+
 export default function OverviewPage() {
   return (
-    <div className="max-w-2xl">
-      <div className="min-h-28">
+    <div className="max-w-5xl">
+      <div className="min-h-24 border-b border-line pb-6">
         <Suspense>
           <OrganizationContext />
         </Suspense>
       </div>
 
-      <section className="mt-12">
-        <h2 className="text-lg font-semibold">From change to impact</h2>
-        <p className="mt-1 text-sm text-muted">
-          None of these steps is available yet. They will open here, in this
-          order.
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">Analysis runs</h2>
+        <p className="mt-1 mb-5 text-sm text-muted">
+          The most recent analyses of this organization’s pull requests.
         </p>
-        <ol className="mt-5 border-l border-line">
-          {steps.map((step, index) => (
-            <li key={step.title} className="relative pb-6 pl-8 last:pb-0">
-              <span className="absolute top-0 -left-3 grid size-6 place-items-center rounded-full border border-line bg-canvas font-mono text-xs text-muted">
-                {index + 1}
-              </span>
-              <p className="font-medium">{step.title}</p>
-              <p className="text-sm text-muted">{step.detail}</p>
-            </li>
-          ))}
-        </ol>
+        <Suspense>
+          <AnalysisRuns />
+        </Suspense>
       </section>
 
-      <section className="mt-12">
-        <h2 className="text-lg font-semibold">Team</h2>
-        <p className="mt-1 text-sm text-muted">
-          Everyone in this organization shares this workspace.
-        </p>
+      <section className="mt-10 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-line px-5 py-4">
+        <div>
+          <h2 className="font-semibold">Team</h2>
+          <p className="text-sm text-muted">
+            Everyone in this organization shares this workspace.
+          </p>
+        </div>
         <Link
           href="/team"
-          className="mt-4 inline-block rounded-md bg-accent px-3.5 py-2 text-sm font-medium text-accent-ink"
+          className="rounded-md bg-accent px-3.5 py-2 text-sm font-medium text-accent-ink"
         >
           Invite people
         </Link>

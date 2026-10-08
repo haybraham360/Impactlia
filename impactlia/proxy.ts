@@ -8,6 +8,9 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/__clerk(.*)",
+  // The parser preview shows a file from the developer's own disk and needs
+  // no session. The page itself does not exist outside development.
+  ...(process.env.NODE_ENV === "development" ? ["/preview"] : []),
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

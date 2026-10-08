@@ -12,6 +12,16 @@
   --line: light-dark(#dce1e7, #27313c);
   --accent: light-dark(#2a55c8, #8aa6f7);
   --accent-ink: light-dark(#ffffff, #0f141a);
+  /* These three carry meaning (state and risk) and are never decoration. */
+  --positive: light-dark(#1f7a4d, #62c08e);
+  --caution: light-dark(#8a5a00, #e0b252);
+  --critical: light-dark(#b3352b, #f08a80);
+  /* Dependency direction, relative to the selection. Kept away from the
+     state colours above, and always paired with a solid or dashed line so
+     direction never rests on colour alone. */
+  --incoming: light-dark(#7a3fc0, #c3a0f5);
+  --outgoing: light-dark(#0b7285, #5cc8d8);
+  --edge: light-dark(#9aa5b3, #4a5766);
 }
 
 :root[data-theme="light"] {
@@ -30,6 +40,12 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
+  --color-positive: var(--positive);
+  --color-caution: var(--caution);
+  --color-critical: var(--critical);
+  --color-incoming: var(--incoming);
+  --color-outgoing: var(--outgoing);
+  --color-edge: var(--edge);
   --font-sans: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
 }
@@ -42,4 +58,18 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* The graph canvas takes its colours from the tokens above rather than from
+   the library's own light and dark themes. */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--edge);
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-background-color-hover: var(--canvas);
+  --xy-controls-button-color: var(--ink);
+  --xy-controls-button-color-hover: var(--ink);
+  --xy-controls-button-border-color: var(--line);
+  --xy-controls-box-shadow: 0 0 0 1px var(--line);
+  --xy-attribution-background-color: transparent;
 }

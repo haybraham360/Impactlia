@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "parse": "tsc -p parser/tsconfig.json && node node_modules/.cache/impactlia-parser/cli.js"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.11",
     "@supabase/supabase-js": "^2.117.3",
+    "@xyflow/react": "^12.12.0",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
