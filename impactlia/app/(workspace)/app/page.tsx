@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AnalysisRunList } from "@/components/analysis-run-list";
 import { listAnalysisRuns } from "@/lib/analysis-runs";
+import { TEAM_PATH } from "@/lib/routes";
 import { getWorkspace } from "@/lib/workspace";
 
 const roleLabels: Record<string, string> = {
@@ -70,7 +71,7 @@ export default function OverviewPage() {
           </p>
         </div>
         <Link
-          href="/team"
+          href={TEAM_PATH}
           className="rounded-md bg-accent px-3.5 py-2 text-sm font-medium text-accent-ink"
         >
           Invite people

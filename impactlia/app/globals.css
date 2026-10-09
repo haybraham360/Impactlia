@@ -73,3 +73,135 @@ body {
   --xy-controls-box-shadow: 0 0 0 1px var(--line);
   --xy-attribution-background-color: transparent;
 }
+
+/* The landing page's hero map builds itself once, in order, and then stays
+   still. Both animations fill backwards only: once they end the elements are
+   back to their plain styles, which is also all that reduced motion shows. */
+@keyframes impact-appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes impact-draw {
+  from {
+    opacity: 0;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+.impact-step {
+  animation: impact-appear 400ms ease-out backwards;
+}
+
+.impact-edge {
+  animation: impact-draw 500ms ease-out backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .impact-step,
+  .impact-edge {
+    animation: none;
+  }
+}
+
+/* Scroll reveals on the landing page. Nothing is hidden by CSS alone: the
+   RevealOnScroll component marks an element pending only while it is still
+   below the screen, and shown the first time it scrolls in. Without the
+   script, or with reduced motion, every element just sits there in its plain
+   styles. Like the hero, each animation fills backwards only and runs once. */
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@keyframes reveal-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes reveal-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+@media screen and (prefers-reduced-motion: no-preference) {
+  [data-reveal-state="pending"] {
+    opacity: 0;
+  }
+
+  [data-reveal-state="shown"] {
+    animation: reveal-rise 500ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+
+  /* Wide panels fade in place; sliding something that large is distracting. */
+  [data-reveal="panel"][data-reveal-state="shown"] {
+    animation-name: reveal-fade;
+    animation-duration: 600ms;
+  }
+
+  /* A connecting line is drawn from its start to its arrowhead. */
+  [data-reveal="wipe"][data-reveal-state="pending"] {
+    opacity: 1;
+    clip-path: inset(0 100% 0 0);
+  }
+
+  [data-reveal="wipe"][data-reveal-state="shown"] {
+    animation-name: reveal-wipe;
+  }
+
+  /* The hero map already builds itself in order. If it starts below the
+     screen, its sequence is held back and restarts when it scrolls in. */
+  [data-reveal="sequence"][data-reveal-state="pending"] :is(.impact-step, .impact-edge) {
+    animation: none;
+  }
+
+  [data-reveal="sequence"][data-reveal-state="shown"] {
+    animation-name: reveal-fade;
+    animation-duration: 300ms;
+  }
+
+  /* Stagger for items that arrive together. */
+  [data-reveal-delay="1"] { animation-delay: 80ms; }
+  [data-reveal-delay="2"] { animation-delay: 160ms; }
+  [data-reveal-delay="3"] { animation-delay: 240ms; }
+  [data-reveal-delay="4"] { animation-delay: 320ms; }
+  [data-reveal-delay="5"] { animation-delay: 400ms; }
+  [data-reveal-delay="6"] { animation-delay: 480ms; }
+
+  /* The FAQ opens and closes smoothly where the browser can animate to an
+     automatic height, fades where it cannot, and snaps everywhere else. */
+  @supports selector(::details-content) {
+    .faq-item {
+      interpolate-size: allow-keywords;
+    }
+
+    .faq-item::details-content {
+      block-size: 0;
+      overflow-y: clip;
+      opacity: 0;
+      transition:
+        content-visibility 250ms allow-discrete,
+        block-size 250ms ease-out,
+        opacity 250ms ease-out;
+    }
+
+    .faq-item[open]::details-content {
+      block-size: auto;
+      opacity: 1;
+    }
+  }
+}

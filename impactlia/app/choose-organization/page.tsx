@@ -1,5 +1,6 @@
 import { OrganizationList } from "@clerk/nextjs";
 import { Suspense } from "react";
+import { WORKSPACE_PATH } from "@/lib/routes";
 
 // The one place a signed-in session without an active organization can end
 // up. Sending it to sign-in instead loops forever, because sign-in sees a
@@ -11,8 +12,8 @@ export default function ChooseOrganizationPage() {
       <Suspense>
         <OrganizationList
           hidePersonal
-          afterSelectOrganizationUrl="/"
-          afterCreateOrganizationUrl="/"
+          afterSelectOrganizationUrl={WORKSPACE_PATH}
+          afterCreateOrganizationUrl={WORKSPACE_PATH}
         />
       </Suspense>
     </div>
