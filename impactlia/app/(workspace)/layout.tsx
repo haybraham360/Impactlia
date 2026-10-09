@@ -3,12 +3,13 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ThemeControl } from "@/components/theme-control";
 import { WorkspaceNav } from "@/components/workspace-nav";
+import { WORKSPACE_PATH } from "@/lib/routes";
 
 export default function WorkspaceLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <aside className="flex shrink-0 flex-col gap-4 border-b border-line bg-surface p-4 md:w-60 md:border-r md:border-b-0">
-        <Link href="/" className="px-2.5 text-base font-semibold tracking-tight">
+        <Link href={WORKSPACE_PATH} className="px-2.5 text-base font-semibold tracking-tight">
           Impactlia
         </Link>
 
@@ -18,8 +19,8 @@ export default function WorkspaceLayout({ children }: LayoutProps<"/">) {
           <Suspense>
             <OrganizationSwitcher
               hidePersonal
-              afterSelectOrganizationUrl="/"
-              afterCreateOrganizationUrl="/"
+              afterSelectOrganizationUrl={WORKSPACE_PATH}
+              afterCreateOrganizationUrl={WORKSPACE_PATH}
             />
           </Suspense>
         </div>

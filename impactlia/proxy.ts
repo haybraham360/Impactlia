@@ -5,9 +5,14 @@ import { CHOOSE_ORGANIZATION_PATH } from "@/lib/routes";
 // Everything is protected unless it is listed here, so a route added in a
 // later phase is private by default.
 const isPublicRoute = createRouteMatcher([
+  // The landing page. It reads no session and no data.
+  "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/__clerk(.*)",
+  // The parser preview shows a file from the developer's own disk and needs
+  // no session. The page itself does not exist outside development.
+  ...(process.env.NODE_ENV === "development" ? ["/preview"] : []),
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

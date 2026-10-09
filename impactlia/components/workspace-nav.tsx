@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { TEAM_PATH, WORKSPACE_PATH } from "@/lib/routes";
 
 const available = [
-  { href: "/", label: "Overview" },
-  { href: "/team", label: "Team" },
+  { href: WORKSPACE_PATH, label: "Overview" },
+  { href: TEAM_PATH, label: "Team" },
 ];
 
 // Shown so the workspace's shape is clear, but not links: none of these exist
