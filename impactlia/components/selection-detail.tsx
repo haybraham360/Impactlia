@@ -15,8 +15,10 @@ import {
   numberFormat,
 } from "@/components/detail-parts";
 import { RepositorySummary, reasonLabel } from "@/components/repository-summary";
+import { TraversalResults } from "@/components/traversal-results";
 import type { GraphEdge, GraphFile, GraphFolder, GraphModel } from "@/lib/graph/model";
 import type { Relations, Selection } from "@/lib/graph/selection";
+import type { Traversal, TraversalDirection } from "@/lib/graph/traverse";
 import { countBy, type RepositoryOverview } from "@/lib/repository-overview";
 
 type Tab = "structure" | "explanation";
@@ -28,17 +30,41 @@ const tabs: { id: Tab; label: string }[] = [
 
 type Select = (selection: Selection) => void;
 
+// What a selected file's Structure tab lists: its direct relationships, or a
+// traversal further out in one direction.
+export type FileView = "structure" | TraversalDirection;
+
+// Everything the traversal views need, owned by the workspace because the
+// graph draws the same traversal.
+export type TraversalControls = {
+  view: FileView;
+  // null unless a file is selected and a traversal view is open.
+  traversal: Traversal | null;
+  onView: (view: FileView) => void;
+  onDepth: (depth: number) => void;
+};
+
+const views: { id: TraversalDirection; label: string }[] = [
+  { id: "dependents", label: "Blast radius" },
+  { id: "dependencies", label: "Dependency chain" },
+];
+
 function FileStructure({
   file,
   relations,
   fileById,
+  controls,
+  unresolvedInRepository,
   onSelect,
 }: {
   file: GraphFile;
   relations: Relations;
   fileById: ReadonlyMap<string, GraphFile>;
+  controls: TraversalControls;
+  unresolvedInRepository: number;
   onSelect: Select;
 }) {
+  const { view, traversal } = controls;
   const failed = file.parseStatus === "failed";
   const rows = (edges: GraphEdge[], end: "source" | "target") =>
     edges.flatMap((edge) => {
@@ -70,32 +96,63 @@ function FileStructure({
           {/* Always shown, zero included, so a complete file says so. */}
           <Fact label="Unresolved imports">{numberFormat.format(file.unresolved.length)}</Fact>
         </Facts>
+        {/* Pressing the open view again returns to the direct relationships. */}
+        <div role="group" aria-label="Follow imports further" className="mt-3 flex flex-wrap gap-2">
+          {views.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={view === id}
+              onClick={() => controls.onView(view === id ? "structure" : id)}
+              className={`cursor-pointer rounded-md border px-2.5 py-1 font-medium ${
+                view === id
+                  ? "border-accent bg-accent text-accent-ink"
+                  : "border-line hover:bg-canvas"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <Section
-        direction="incoming"
-        title="Files that depend on this"
-        count={relations.incoming.length}
-      >
-        {relations.incoming.length === 0 ? (
-          <Note>No import of this file was found in the repository.</Note>
-        ) : (
-          <Rows>{rows(relations.incoming, "source")}</Rows>
-        )}
-      </Section>
-      <Section
-        direction="outgoing"
-        title="Files this depends on"
-        count={relations.outgoing.length}
-      >
-        {relations.outgoing.length > 0 ? (
-          <Rows>{rows(relations.outgoing, "target")}</Rows>
-        ) : failed ? (
-          <Note>Unknown. The file could not be parsed, so its imports were not read.</Note>
-        ) : (
-          <Note>This file imports no other file in the repository.</Note>
-        )}
-      </Section>
+      {traversal ? (
+        <TraversalResults
+          file={file}
+          traversal={traversal}
+          fileById={fileById}
+          unresolvedInRepository={unresolvedInRepository}
+          onDepth={controls.onDepth}
+          onSelect={onSelect}
+        />
+      ) : (
+        <>
+            <Section
+              direction="incoming"
+              title="Files that depend on this"
+              count={relations.incoming.length}
+            >
+              {relations.incoming.length === 0 ? (
+                <Note>No import of this file was found in the repository.</Note>
+              ) : (
+                <Rows>{rows(relations.incoming, "source")}</Rows>
+              )}
+            </Section>
+            <Section
+              direction="outgoing"
+              title="Files this depends on"
+              count={relations.outgoing.length}
+            >
+              {relations.outgoing.length > 0 ? (
+                <Rows>{rows(relations.outgoing, "target")}</Rows>
+              ) : failed ? (
+                <Note>Unknown. The file could not be parsed, so its imports were not read.</Note>
+              ) : (
+                <Note>This file imports no other file in the repository.</Note>
+              )}
+            </Section>
+        </>
+      )}
 
       {failed && (
         <Section title="Parse errors" count={file.parseErrors.length}>
@@ -254,12 +311,14 @@ export function SelectionDetail({
   model,
   selection,
   relations,
+  controls,
   onSelect,
 }: {
   overview: RepositoryOverview;
   model: GraphModel;
   selection: Selection | null;
   relations: Relations | null;
+  controls: TraversalControls;
   onSelect: Select;
 }) {
   // Kept here rather than in the selected view, so the tab survives moving
@@ -343,6 +402,8 @@ export function SelectionDetail({
                 file={file}
                 relations={relations}
                 fileById={fileById}
+                controls={controls}
+                unresolvedInRepository={overview.unresolvedReferences}
                 onSelect={onSelect}
               />
             ) : (

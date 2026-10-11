@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "parse": "tsc -p parser/tsconfig.json && node node_modules/.cache/impactlia-parser/cli.js"
+    "parse": "tsc -p parser/tsconfig.json && node node_modules/.cache/impactlia-parser/cli.js",
+    "check:graph": "tsc -p lib/graph/checks/tsconfig.json && node --test node_modules/.cache/impactlia-graph-checks/checks/graph.test.js"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.11",
