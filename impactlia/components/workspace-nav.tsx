@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TEAM_PATH, WORKSPACE_PATH } from "@/lib/routes";
+import { AI_RUNS_PATH, TEAM_PATH, WORKSPACE_PATH } from "@/lib/routes";
 
 const available = [
   { href: WORKSPACE_PATH, label: "Overview" },
+  { href: AI_RUNS_PATH, label: "AI runs" },
   { href: TEAM_PATH, label: "Team" },
 ];
 

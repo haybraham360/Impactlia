@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AnalysisRunList } from "@/components/analysis-run-list";
-import { listAnalysisRuns } from "@/lib/analysis-runs";
+import { RepositoryForm } from "@/components/repository-form";
+import { RepositoryList } from "@/components/repository-list";
+import { listFailedSubmissions, listRepositories } from "@/lib/ingestion/runs";
+import { listAnalysisRuns } from "@/lib/impact/runs";
 import { TEAM_PATH } from "@/lib/routes";
 import { getWorkspace } from "@/lib/workspace";
 
@@ -44,6 +47,15 @@ async function AnalysisRuns() {
   return <AnalysisRunList runs={await listAnalysisRuns()} />;
 }
 
+async function Repositories() {
+  await getWorkspace();
+  const [repositories, failedSubmissions] = await Promise.all([
+    listRepositories(),
+    listFailedSubmissions(),
+  ]);
+  return <RepositoryList repositories={repositories} failedSubmissions={failedSubmissions} />;
+}
+
 export default function OverviewPage() {
   return (
     <div className="max-w-5xl">
@@ -54,6 +66,20 @@ export default function OverviewPage() {
       </div>
 
       <section className="mt-8">
+        <h2 className="text-lg font-semibold">Repositories</h2>
+        <p className="mt-1 mb-5 text-sm text-muted">
+          Each repository is analyzed once and its dependency map is stored for
+          everyone in this organization.
+        </p>
+        <RepositoryForm />
+        <div className="mt-5">
+          <Suspense>
+            <Repositories />
+          </Suspense>
+        </div>
+      </section>
+
+      <section className="mt-10">
         <h2 className="text-lg font-semibold">Analysis runs</h2>
         <p className="mt-1 mb-5 text-sm text-muted">
           The most recent analyses of this organization’s pull requests.

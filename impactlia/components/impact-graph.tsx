@@ -24,6 +24,7 @@ import {
   layoutFolders,
   linkFolders,
 } from "@/lib/graph/layout";
+import type { Emphasis } from "@/lib/graph/emphasis";
 import type { GraphFile, GraphFolder, GraphModel } from "@/lib/graph/model";
 import type { Relations, Selection } from "@/lib/graph/selection";
 
@@ -40,6 +41,7 @@ type FolderData = {
   tone: FolderTone;
   selectedFile: string | null;
   relations: Relations | null;
+  emphasis: Emphasis | null;
   onSelect: (selection: Selection) => void;
   onToggle: (folder: string) => void;
 };
@@ -61,8 +63,10 @@ function FileRow({ file, data }: { file: GraphFile; data: FolderData }) {
   const selected = data.selectedFile === file.id;
   const dependent = relations?.dependents.has(file.id) ?? false;
   const dependency = relations?.dependencies.has(file.id) ?? false;
-  const unrelated =
-    relations !== null && !relations.selected.has(file.id) && !dependent && !dependency;
+  // While a traversal or filter is active it alone decides what is dimmed.
+  const unrelated = data.emphasis
+    ? !selected && !data.emphasis.files.has(file.id)
+    : relations !== null && !relations.selected.has(file.id) && !dependent && !dependency;
   // Lit while this file's row in the detail pane is hovered, and the other
   // way round: hovering here lights that row.
   const hovered = useHovered((hover) => hover.file === file.id);
@@ -98,8 +102,10 @@ function FolderBox({ data }: NodeProps<FolderNode>) {
   const open = files !== null;
   // Why this folder stayed bright: how many of its files depend on the
   // selection, and how many the selection depends on.
-  const dependents = data.relations?.dependentsIn.get(folder.id) ?? 0;
-  const dependencies = data.relations?.dependenciesIn.get(folder.id) ?? 0;
+  // Under a traversal or filter the reason is its matches instead.
+  const matches = data.emphasis?.matchesIn.get(folder.id) ?? 0;
+  const dependents = data.emphasis ? 0 : (data.relations?.dependentsIn.get(folder.id) ?? 0);
+  const dependencies = data.emphasis ? 0 : (data.relations?.dependenciesIn.get(folder.id) ?? 0);
   const path = folder.id === "" ? folder.label : folder.id;
   // A hovered file counts for its folder too, so a pane row still has
   // something to light up on the graph while that file's folder is closed.
@@ -144,6 +150,11 @@ function FolderBox({ data }: NodeProps<FolderNode>) {
               in {numberFormat.format(folder.fanIn)}, out {numberFormat.format(folder.fanOut)}
             </span>
           </span>
+          {matches > 0 && (
+            <span className="mt-0.5 block text-xs tabular-nums">
+              {numberFormat.format(matches)} {data.emphasis?.noun}
+            </span>
+          )}
           {(dependents > 0 || dependencies > 0) && (
             <span className="mt-0.5 flex items-center gap-3 text-xs tabular-nums">
               {dependents > 0 && (
@@ -202,11 +213,13 @@ function folderTone(
   folder: GraphFolder,
   selection: Selection | null,
   relations: Relations | null,
+  emphasis: Emphasis | null,
   holder: string | null,
 ): FolderTone {
-  if (!selection || !relations) return "idle";
-  if (selection.kind === "folder" && selection.id === folder.id) return "selected";
+  if (selection?.kind === "folder" && selection.id === folder.id) return "selected";
   if (holder === folder.id) return "holds-selection";
+  if (emphasis) return emphasis.matchesIn.has(folder.id) ? "related" : "dimmed";
+  if (!selection || !relations) return "idle";
   return relations.folders.has(folder.id) ? "related" : "dimmed";
 }
 
@@ -214,11 +227,15 @@ export function ImpactGraph({
   model,
   selection,
   relations,
+  emphasis,
+  onClearEmphasis,
   onSelect,
 }: {
   model: GraphModel;
   selection: Selection | null;
   relations: Relations | null;
+  emphasis: Emphasis | null;
+  onClearEmphasis: () => void;
   onSelect: (selection: Selection | null) => void;
 }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -287,28 +304,38 @@ export function ImpactGraph({
               ? folder.files.flatMap((id) => fileById.get(id) ?? [])
               : null,
             headerHeight: box.header,
-            tone: folderTone(folder, selection, relations, holder),
+            tone: folderTone(folder, selection, relations, emphasis, holder),
             selectedFile,
             relations,
+            emphasis,
             onSelect,
             onToggle: toggle,
           },
         },
       ];
     });
-  }, [model, boxes, open, fileById, selection, relations, onSelect]);
+  }, [model, boxes, open, fileById, selection, relations, emphasis, onSelect]);
 
   const edges = useMemo(
     (): Edge[] =>
       links.map((link) => {
-        const incoming = relations?.incomingLinks.has(link.id) ?? false;
-        const outgoing = relations?.outgoingLinks.has(link.id) ?? false;
+        // Under a traversal or filter, the lines picked out are the ones
+        // carrying its evidence; otherwise the selection's own edges.
+        const evidence = emphasis?.links.has(link.id) ?? false;
+        const incoming = emphasis
+          ? evidence && emphasis.line === "incoming"
+          : (relations?.incomingLinks.has(link.id) ?? false);
+        const outgoing = emphasis
+          ? evidence && emphasis.line === "outgoing"
+          : (relations?.outgoingLinks.has(link.id) ?? false);
         const color = incoming
           ? "var(--incoming)"
           : outgoing
             ? "var(--outgoing)"
-            : "var(--edge)";
-        const highlighted = incoming || outgoing;
+            : evidence
+              ? "var(--ink)"
+              : "var(--edge)";
+        const highlighted = incoming || outgoing || evidence;
         return {
           id: link.id,
           source: link.source,
@@ -319,11 +346,11 @@ export function ImpactGraph({
             stroke: color,
             strokeWidth: highlighted ? 2 : 1.25,
             strokeDasharray: outgoing ? "6 4" : undefined,
-            opacity: relations && !highlighted ? 0.12 : 1,
+            opacity: (relations || emphasis) && !highlighted ? 0.12 : 1,
           },
         };
       }),
-    [links, relations],
+    [links, relations, emphasis],
   );
 
   return (
@@ -371,6 +398,18 @@ export function ImpactGraph({
               The selection depends on it
             </li>
           </ul>
+          {emphasis && (
+            <div className="mt-2 border-t border-line pt-2">
+              <p className="text-ink">{emphasis.legend}</p>
+              <button
+                type="button"
+                onClick={onClearEmphasis}
+                className="pointer-events-auto mt-1 cursor-pointer text-accent hover:underline"
+              >
+                Show the full graph
+              </button>
+            </div>
+          )}
         </Panel>
       </ReactFlow>
     </div>

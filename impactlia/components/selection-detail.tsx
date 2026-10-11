@@ -14,10 +14,21 @@ import {
   folderPath,
   numberFormat,
 } from "@/components/detail-parts";
+import {
+  ExplanationPanel,
+  useExplanations,
+  type AiContext,
+} from "@/components/explanation-panel";
 import { RepositorySummary, reasonLabel } from "@/components/repository-summary";
+import { TraversalResults } from "@/components/traversal-results";
+import { SUGGESTED_ROLE_LABELS } from "@/lib/ai/roles";
+import type { RoleSuggestion } from "@/lib/ai/types";
 import type { GraphEdge, GraphFile, GraphFolder, GraphModel } from "@/lib/graph/model";
 import type { Relations, Selection } from "@/lib/graph/selection";
+import type { Traversal, TraversalDirection } from "@/lib/graph/traverse";
 import { countBy, type RepositoryOverview } from "@/lib/repository-overview";
+import type { RouteRecord } from "@/parser/contract";
+import { ROLES } from "@/parser/roles";
 
 type Tab = "structure" | "explanation";
 
@@ -28,17 +39,48 @@ const tabs: { id: Tab; label: string }[] = [
 
 type Select = (selection: Selection) => void;
 
+// What a selected file's Structure tab lists: its direct relationships, or a
+// traversal further out in one direction.
+export type FileView = "structure" | TraversalDirection;
+
+// Everything the traversal views need, owned by the workspace because the
+// graph draws the same traversal.
+export type TraversalControls = {
+  view: FileView;
+  // null unless a file is selected and a traversal view is open.
+  traversal: Traversal | null;
+  onView: (view: FileView) => void;
+  onDepth: (depth: number) => void;
+};
+
+const views: { id: TraversalDirection; label: string }[] = [
+  { id: "dependents", label: "Blast radius" },
+  { id: "dependencies", label: "Dependency chain" },
+];
+
 function FileStructure({
   file,
   relations,
   fileById,
+  controls,
+  routes,
+  suggestedRole,
+  unresolvedInRepository,
   onSelect,
 }: {
   file: GraphFile;
+  // A model’s suggestion for a file no rule placed. Shown beside the role,
+  // never in place of it.
+  suggestedRole: RoleSuggestion | undefined;
+  // The routes read out of this file.
+  routes: RouteRecord[];
   relations: Relations;
   fileById: ReadonlyMap<string, GraphFile>;
+  controls: TraversalControls;
+  unresolvedInRepository: number;
   onSelect: Select;
 }) {
+  const { view, traversal } = controls;
   const failed = file.parseStatus === "failed";
   const rows = (edges: GraphEdge[], end: "source" | "target") =>
     edges.flatMap((edge) => {
@@ -63,6 +105,10 @@ function FileStructure({
           <Fact label="Type">
             <span className="font-mono text-[0.8125rem]">{file.type}</span>
           </Fact>
+          <Fact label="Role">{ROLES[file.role.id].label}</Fact>
+          {suggestedRole && (
+            <Fact label="Suggested role (AI)">{SUGGESTED_ROLE_LABELS[suggestedRole.role]}</Fact>
+          )}
           <Fact label="Lines">{numberFormat.format(file.lineCount)}</Fact>
           <Fact label="Parse status">
             {failed ? <span className="text-critical">Could not be parsed</span> : "Parsed"}
@@ -70,32 +116,95 @@ function FileStructure({
           {/* Always shown, zero included, so a complete file says so. */}
           <Fact label="Unresolved imports">{numberFormat.format(file.unresolved.length)}</Fact>
         </Facts>
+        {/* The evidence for the role, so it can be checked against the file. */}
+        <p className="mt-2 text-xs break-words text-muted">
+          Role: {file.role.reason}
+          {file.role.line !== null && ` Line ${numberFormat.format(file.role.line)}.`}
+        </p>
+        {suggestedRole && (
+          <p className="mt-1 text-xs break-words text-muted">
+            Suggested role: a guess by {suggestedRole.model} from the file’s source. It does
+            not change the role above, the route table or any dependency.
+          </p>
+        )}
+        {/* Pressing the open view again returns to the direct relationships. */}
+        <div role="group" aria-label="Follow imports further" className="mt-3 flex flex-wrap gap-2">
+          {views.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={view === id}
+              onClick={() => controls.onView(view === id ? "structure" : id)}
+              className={`cursor-pointer rounded-md border px-2.5 py-1 font-medium ${
+                view === id
+                  ? "border-accent bg-accent text-accent-ink"
+                  : "border-line hover:bg-canvas"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <Section
-        direction="incoming"
-        title="Files that depend on this"
-        count={relations.incoming.length}
-      >
-        {relations.incoming.length === 0 ? (
-          <Note>No import of this file was found in the repository.</Note>
-        ) : (
-          <Rows>{rows(relations.incoming, "source")}</Rows>
-        )}
-      </Section>
-      <Section
-        direction="outgoing"
-        title="Files this depends on"
-        count={relations.outgoing.length}
-      >
-        {relations.outgoing.length > 0 ? (
-          <Rows>{rows(relations.outgoing, "target")}</Rows>
-        ) : failed ? (
-          <Note>Unknown. The file could not be parsed, so its imports were not read.</Note>
-        ) : (
-          <Note>This file imports no other file in the repository.</Note>
-        )}
-      </Section>
+      {routes.length > 0 && (
+        <Section title="Routes in this file" count={routes.length}>
+          <ul className="space-y-2">
+            {routes.map((route, index) => (
+              <li key={index}>
+                <div className="flex items-baseline gap-2 font-mono text-[0.8125rem]">
+                  <span className="shrink-0 font-medium">{route.method ?? "Page"}</span>
+                  <span className="min-w-0 break-all">{route.pattern}</span>
+                  {route.line !== null && (
+                    <span className="ml-auto shrink-0 font-sans text-xs text-muted">
+                      line {numberFormat.format(route.line)}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs break-words text-muted">{route.evidence}</p>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {traversal ? (
+        <TraversalResults
+          file={file}
+          traversal={traversal}
+          fileById={fileById}
+          unresolvedInRepository={unresolvedInRepository}
+          onDepth={controls.onDepth}
+          onSelect={onSelect}
+        />
+      ) : (
+        <>
+            <Section
+              direction="incoming"
+              title="Files that depend on this"
+              count={relations.incoming.length}
+            >
+              {relations.incoming.length === 0 ? (
+                <Note>No import of this file was found in the repository.</Note>
+              ) : (
+                <Rows>{rows(relations.incoming, "source")}</Rows>
+              )}
+            </Section>
+            <Section
+              direction="outgoing"
+              title="Files this depends on"
+              count={relations.outgoing.length}
+            >
+              {relations.outgoing.length > 0 ? (
+                <Rows>{rows(relations.outgoing, "target")}</Rows>
+              ) : failed ? (
+                <Note>Unknown. The file could not be parsed, so its imports were not read.</Note>
+              ) : (
+                <Note>This file imports no other file in the repository.</Note>
+              )}
+            </Section>
+        </>
+      )}
 
       {failed && (
         <Section title="Parse errors" count={file.parseErrors.length}>
@@ -247,19 +356,26 @@ function FolderStructure({
 
 // The right-hand pane. With nothing selected it summarises the repository;
 // with a selection it lists that file's or folder's relationships exactly as
-// the edge list has them. It never adds to them, and everything it shows was
-// already in the browser when the page loaded.
+// the edge list has them. It never adds to them. The Structure tab shows only
+// what was in the browser when the page loaded; the Explanation tab is the one
+// place that asks a server for more, and what it shows is labelled as a
+// model’s interpretation.
 export function SelectionDetail({
   overview,
   model,
   selection,
   relations,
+  controls,
+  ai,
   onSelect,
 }: {
+  // Absent where there is no stored repository to explain from.
+  ai?: AiContext;
   overview: RepositoryOverview;
   model: GraphModel;
   selection: Selection | null;
   relations: Relations | null;
+  controls: TraversalControls;
   onSelect: Select;
 }) {
   // Kept here rather than in the selected view, so the tab survives moving
@@ -269,6 +385,8 @@ export function SelectionDetail({
     () => new Map(model.files.map((file) => [file.id, file])),
     [model],
   );
+  const knownFiles = useMemo(() => new Set(fileById.keys()), [fileById]);
+  const explanations = useExplanations(ai);
 
   const file = selection?.kind === "file" ? fileById.get(selection.id) : undefined;
   const folder =
@@ -328,14 +446,14 @@ export function SelectionDetail({
 
       <div role="tabpanel" id="detail-panel" aria-labelledby={`detail-tab-${tab}`}>
         {tab === "explanation" ? (
-          <div className="px-5 py-4">
-            <h3 className="font-medium">No explanation yet</h3>
-            <p className="mt-1 text-muted">
-              Impactlia does not write explanations yet, so there is nothing
-              here for this {file ? "file" : "folder"}. Everything known about
-              it is on the Structure tab, read directly from the repository.
-            </p>
-          </div>
+          <ExplanationPanel
+            ai={ai}
+            explanations={explanations}
+            kind={selection.kind}
+            id={selection.id}
+            knownFiles={knownFiles}
+            onSelectFile={(id) => onSelect({ kind: "file", id })}
+          />
         ) : (
           <>
             {file ? (
@@ -343,6 +461,10 @@ export function SelectionDetail({
                 file={file}
                 relations={relations}
                 fileById={fileById}
+                controls={controls}
+                routes={overview.routes.filter((route) => route.file === file.id)}
+                suggestedRole={explanations.role(file.id)}
+                unresolvedInRepository={overview.unresolvedReferences}
                 onSelect={onSelect}
               />
             ) : (

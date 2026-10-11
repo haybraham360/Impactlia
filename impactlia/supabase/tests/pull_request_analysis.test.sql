@@ -1,0 +1,334 @@
+-- Checks for 20261013090000_pull_request_analysis.sql. Run with
+-- `pnpm check:database`. Every statement after the setup runs as the
+-- `authenticated` role with one organization's token, exactly as the
+-- application's requests do, so what passes here passed the policies.
+--
+-- A failed assertion stops the script with the message beside it.
+
+\set first 'org_first'
+\set second 'org_second'
+
+create schema checks;
+grant usage on schema checks to authenticated;
+
+-- Acts as a member of one organization from here on.
+create function checks.act_as(organization text)
+returns void
+language sql
+as $$
+  select set_config('request.jwt.claims', json_build_object('org_id', organization)::text, false);
+$$;
+
+-- Runs a statement and returns the error's SQLSTATE, or null if it succeeded.
+create function checks.error_of(statement text)
+returns text
+language plpgsql
+as $$
+begin
+  execute statement;
+  return null;
+exception when others then
+  return sqlstate;
+end;
+$$;
+
+-- Ids the checks share. Rows are written by the members themselves, below.
+create table checks.ids (name text primary key, id uuid not null);
+grant select, insert on checks.ids to authenticated;
+grant execute on all functions in schema checks to authenticated;
+
+set role authenticated;
+
+-- ── A member starts an analysis ────────────────────────────────────────────
+select checks.act_as(:'first');
+
+insert into public.organizations (id) values (:'first');
+
+with repository as (
+  insert into public.repositories
+    (organization_id, provider, provider_repository_id, owner, name, default_branch)
+  values (:'first', 'github', '1', 'example', 'storefront', 'main')
+  returning id
+), pull_request as (
+  insert into public.pull_requests
+    (organization_id, repository_id, number, title, author_login, base_ref, head_ref)
+  select :'first', id, 7, 'Change the price format', 'someone', 'main', 'price-format'
+  from repository
+  returning id
+), analysis as (
+  insert into public.analyses
+    (organization_id, pull_request_id, status, stage, last_completed_stage,
+     base_sha, head_sha, started_at)
+  select :'first', id, 'running', 'fetching', 'validating',
+    repeat('a', 40), repeat('b', 40), now()
+  from pull_request
+  returning id, pull_request_id
+)
+insert into checks.ids (name, id)
+select 'analysis', id from analysis
+union all
+select 'pull_request', pull_request_id from analysis;
+
+do $$
+declare
+  analysis uuid := (select id from checks.ids where name = 'analysis');
+  pull_request uuid := (select id from checks.ids where name = 'pull_request');
+  outcome text;
+begin
+  -- The same pull request at the same commit cannot have two unfinished runs.
+  outcome := checks.error_of(format(
+    $q$insert into public.analyses (organization_id, pull_request_id, status, head_sha, started_at)
+       values ('org_first', %L, 'running', repeat('b', 40), now())$q$, pull_request));
+  assert outcome = '23505', format('a duplicate unfinished run was not refused (%s)', outcome);
+
+  -- At another commit it can.
+  outcome := checks.error_of(format(
+    $q$insert into public.analyses (organization_id, pull_request_id, status, head_sha, started_at)
+       values ('org_first', %L, 'running', repeat('c', 40), now())$q$, pull_request));
+  assert outcome is null, format('a run at another commit was refused (%s)', outcome);
+
+  -- Progress is stamped by the database.
+  update public.analyses
+  set stage = 'preparing', last_completed_stage = 'fetching',
+      progressed_at = '2000-01-01'
+  where id = analysis;
+  assert (select progressed_at > now() - interval '1 minute' from public.analyses where id = analysis),
+    'progressed_at was taken from the caller instead of the database clock';
+
+  -- Progress is broadcast, but nobody reads it without joining the topic.
+  assert not exists (select 1 from realtime.messages),
+    'a member could read broadcast messages without joining the topic';
+end;
+$$;
+
+-- ── A report that names a file it does not contain is refused whole ────────
+do $$
+declare
+  analysis uuid := (select id from checks.ids where name = 'analysis');
+  outcome text;
+begin
+  outcome := checks.error_of(format(
+    $q$select public.complete_analysis(%L, %L::jsonb)$q$,
+    analysis,
+    '{"graphSha": null, "riskLevel": "low", "limitations": [],
+      "files": [{"kind": "changed", "path": "src/a.ts", "changeType": "modified",
+                 "additions": 1, "deletions": 0, "previousPath": null,
+                 "patchAvailable": true, "analysisState": "analysed", "stateReason": null}],
+      "dependencies": [{"source": "src/missing.ts", "target": "src/a.ts",
+                        "kind": "import", "typeOnly": false}],
+      "signals": [], "recommendations": []}'));
+  assert outcome = '23514', format('a dependency on an unknown file was accepted (%s)', outcome);
+  assert (select status = 'running' from public.analyses where id = analysis),
+    'the refused report still changed the run';
+  assert not exists (select 1 from public.analysis_files where analysis_id = analysis),
+    'the refused report left file rows behind';
+end;
+$$;
+
+-- ── A report is stored whole ───────────────────────────────────────────────
+select public.complete_analysis(
+  (select id from checks.ids where name = 'analysis'),
+  $report${
+    "graphSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "riskLevel": "medium",
+    "limitations": [{"id": "removed-files", "detail": "1 file was removed.", "files": ["src/gone.ts"]}],
+    "files": [
+      {"kind": "changed", "path": "src/core.ts", "changeType": "modified", "additions": 3,
+       "deletions": 1, "previousPath": null, "patchAvailable": true,
+       "analysisState": "analysed", "stateReason": null},
+      {"kind": "changed", "path": "src/gone.ts", "changeType": "removed", "additions": 0,
+       "deletions": 9, "previousPath": null, "patchAvailable": true,
+       "analysisState": "unanalysed", "stateReason": "Removed by this pull request."},
+      {"kind": "affected", "path": "src/format.ts", "impactDepth": 1,
+       "dependencyPath": ["src/core.ts", "src/format.ts"], "routeCount": 1},
+      {"kind": "affected", "path": "src/page.ts", "impactDepth": 2,
+       "dependencyPath": ["src/core.ts", "src/format.ts", "src/page.ts"], "routeCount": 1}
+    ],
+    "dependencies": [
+      {"source": "src/format.ts", "target": "src/core.ts", "kind": "import", "typeOnly": false},
+      {"source": "src/page.ts", "target": "src/format.ts", "kind": "import+re-export", "typeOnly": true}
+    ],
+    "signals": [
+      {"signal": "transitive-reach", "level": "low",
+       "detail": {"rule": "Counts files.", "facts": ["2 files import the changed code."]},
+       "evidence": ["src/core.ts"]},
+      {"signal": "incomplete-coverage", "level": "medium",
+       "detail": {"rule": "Medium when a file was removed.", "facts": ["1 source file was removed."]},
+       "evidence": ["src/gone.ts"]}
+    ],
+    "recommendations": [
+      {"body": "Check the direct importers by hand.", "reason": "No test file imports the change.",
+       "evidence": ["src/format.ts"]},
+      {"body": "Trace the removed file by hand.", "reason": "It is not in the graph.",
+       "evidence": ["src/gone.ts"]}
+    ]
+  }$report$::jsonb
+);
+
+do $$
+declare
+  analysis uuid := (select id from checks.ids where name = 'analysis');
+  run public.analyses;
+  outcome text;
+begin
+  select * into run from public.analyses where id = analysis;
+  assert run.status = 'completed' and run.stage = 'complete' and run.last_completed_stage = 'saving',
+    'the run was not marked completed';
+  assert run.completed_at is not null, 'completed_at was not stamped';
+  assert run.changed_file_count = 2 and run.affected_file_count = 2,
+    format('counts are %s changed and %s affected, not 2 and 2', run.changed_file_count, run.affected_file_count);
+  assert run.risk_level = 'medium' and run.graph_sha = repeat('b', 40), 'risk level or graph commit was not stored';
+  assert jsonb_array_length(run.limitations) = 1, 'limitations were not stored';
+
+  assert (select count(*) from public.analysis_files where analysis_id = analysis) = 4,
+    'not every file row was written';
+  assert (
+    select dependency_path = array['src/core.ts', 'src/format.ts', 'src/page.ts'] and impact_depth = 2
+    from public.analysis_files where analysis_id = analysis and path = 'src/page.ts'
+  ), 'a dependency path lost its order';
+  assert (
+    select analysis_state = 'unanalysed' and change_type = 'removed' and dependency_path is null
+    from public.analysis_files where analysis_id = analysis and path = 'src/gone.ts'
+  ), 'a changed file was stored with the wrong columns';
+
+  -- Dependencies point from the importing file to the imported one.
+  assert (
+    select count(*) = 2
+    from public.analysis_dependencies as dependency
+    join public.analysis_files as source on source.id = dependency.source_file_id
+    join public.analysis_files as target on target.id = dependency.target_file_id
+    where dependency.analysis_id = analysis
+      and (source.path, target.path, dependency.type_only) in (
+        ('src/format.ts', 'src/core.ts', false),
+        ('src/page.ts', 'src/format.ts', true)
+      )
+  ), 'dependencies were not stored between the right files';
+
+  assert (select count(*) from public.analysis_risk_signals where analysis_id = analysis) = 2,
+    'risk signals were not stored';
+  assert (
+    select file.path = 'src/gone.ts'
+    from public.analysis_evidence as evidence
+    join public.analysis_risk_signals as signal on signal.id = evidence.risk_signal_id
+    join public.analysis_files as file on file.id = evidence.file_id
+    where signal.analysis_id = analysis and signal.signal = 'incomplete-coverage'
+  ), 'risk evidence points at the wrong file';
+
+  assert (
+    select array_agg(body order by position) = array[
+      'Check the direct importers by hand.', 'Trace the removed file by hand.']
+      and bool_and(origin = 'deterministic') and bool_and(reason is not null)
+    from public.analysis_recommendations where analysis_id = analysis
+  ), 'recommendations lost their order, origin or reason';
+  assert (
+    select file.path = 'src/gone.ts'
+    from public.analysis_evidence as evidence
+    join public.analysis_recommendations as recommendation
+      on recommendation.id = evidence.recommendation_id
+    join public.analysis_files as file on file.id = evidence.file_id
+    where recommendation.analysis_id = analysis and recommendation.position = 2
+  ), 'recommendation evidence points at the wrong file';
+
+  -- A finished analysis never changes again.
+  outcome := checks.error_of(format(
+    $q$update public.analyses set failure_reason = 'x', status = 'failed' where id = %L$q$, analysis));
+  assert outcome = '23514', format('a completed run was changed (%s)', outcome);
+  outcome := checks.error_of(format(
+    $q$select public.complete_analysis(%L, '{}'::jsonb)$q$, analysis));
+  assert outcome = '23514', format('a completed run was completed twice (%s)', outcome);
+end;
+$$;
+
+-- ── A failed run records when, and can then be run again ───────────────────
+do $$
+declare
+  pull_request uuid := (select id from checks.ids where name = 'pull_request');
+  other uuid;
+  outcome text;
+begin
+  select id into other from public.analyses
+  where pull_request_id = pull_request and head_sha = repeat('c', 40);
+  update public.analyses set status = 'failed', failure_reason = 'GitHub took too long to answer.'
+  where id = other and status = 'running';
+  assert (select status = 'failed' and completed_at is not null and stage = 'validating'
+          from public.analyses where id = other), 'a failure was not recorded with its stage and time';
+
+  -- With that one finished, the same commit can be analysed again.
+  outcome := checks.error_of(format(
+    $q$insert into public.analyses (organization_id, pull_request_id, status, head_sha, started_at)
+       values ('org_first', %L, 'running', repeat('c', 40), now())$q$, pull_request));
+  assert outcome is null, format('a retry after a failure was refused (%s)', outcome);
+end;
+$$;
+
+-- ── Live progress reaches the run's own organization ───────────────────────
+select set_config('realtime.topic', 'analysis:' || (select id from checks.ids where name = 'analysis'), false);
+
+do $$
+begin
+  assert (
+    select count(*) >= 3 and bool_and(private) and bool_and(event = 'progress')
+      and bool_or(payload ->> 'status' = 'completed')
+      and bool_and(payload ?& array['id', 'status', 'stage', 'lastCompletedStage', 'failureReason', 'progressedAt'])
+    from realtime.messages
+    where topic = current_setting('realtime.topic')
+  ), 'the run''s organization did not receive its progress';
+end;
+$$;
+
+-- ── Another organization sees and changes none of it ───────────────────────
+select checks.act_as(:'second');
+insert into public.organizations (id) values (:'second');
+
+do $$
+declare
+  analysis uuid := (select id from checks.ids where name = 'analysis');
+  pull_request uuid := (select id from checks.ids where name = 'pull_request');
+  outcome text;
+  touched integer;
+begin
+  assert not exists (select 1 from public.analyses), 'another organization can read analyses';
+  assert not exists (select 1 from public.pull_requests), 'another organization can read pull requests';
+  assert not exists (select 1 from public.analysis_files), 'another organization can read analysis files';
+  assert not exists (select 1 from public.analysis_dependencies), 'another organization can read dependencies';
+  assert not exists (select 1 from public.analysis_risk_signals), 'another organization can read risk signals';
+  assert not exists (select 1 from public.analysis_recommendations), 'another organization can read recommendations';
+  assert not exists (select 1 from public.analysis_evidence), 'another organization can read evidence';
+  -- Still set to the first organization's topic.
+  assert not exists (select 1 from realtime.messages), 'another organization can join the run''s topic';
+
+  update public.analyses set stage = 'saving' where pull_request_id = pull_request;
+  get diagnostics touched = row_count;
+  assert touched = 0, 'another organization changed an analysis';
+
+  outcome := checks.error_of(format(
+    $q$select public.complete_analysis(
+         (select id from public.analyses where true limit 1), '{}'::jsonb)$q$));
+  assert outcome = '23514', format('another organization completed a run (%s)', outcome);
+  outcome := checks.error_of(format(
+    $q$select public.complete_analysis(%L, '{"files": [], "limitations": []}'::jsonb)$q$, analysis));
+  assert outcome = '23514', format('another organization completed a run by its id (%s)', outcome);
+
+  -- Writing a row under the first organization's name is refused.
+  outcome := checks.error_of(format(
+    $q$insert into public.analyses (organization_id, pull_request_id, status, head_sha, started_at)
+       values ('org_first', %L, 'running', repeat('d', 40), now())$q$, pull_request));
+  assert outcome = '42501', format('a row was written into another organization (%s)', outcome);
+  outcome := checks.error_of(format(
+    $q$insert into public.analysis_files (organization_id, analysis_id, path, kind, change_type)
+       values ('org_first', %L, 'src/x.ts', 'changed', 'added')$q$, analysis));
+  assert outcome = '42501', format('a file row was written into another organization (%s)', outcome);
+end;
+$$;
+
+-- ── And the first organization still has all of it ─────────────────────────
+select checks.act_as(:'first');
+
+do $$
+begin
+  assert (select count(*) from public.analyses) = 3, 'the first organization lost sight of its analyses';
+  assert (select count(*) from public.analysis_files) = 4, 'the first organization lost sight of its files';
+end;
+$$;
+
+reset role;

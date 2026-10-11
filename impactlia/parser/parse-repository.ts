@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { fallbackAdapter, type FrameworkAdapter } from "./adapter";
+import { selectAdapter, type FrameworkAdapter, type Manifest } from "./adapter";
 import {
   REFERENCE_KINDS,
   SCHEMA_VERSION,
@@ -15,9 +15,11 @@ import {
   type UnlinkedReference,
 } from "./contract";
 import { coreExclusionRules, symbolicLinkRule, unsupportedFileTypeRule } from "./exclusions";
+import { otherRole, supportingRole } from "./generic-roles";
 import { buildEdges, computeMetrics, type ResolvedReference } from "./graph";
 import { extractReferences } from "./references";
-import { createResolver, readPackageName } from "./resolve";
+import { createResolver, readPackageDependencies, readPackageName } from "./resolve";
+import { FRAMEWORKS } from "./roles";
 import { byText, describeSourceFile, walkRepository } from "./walk";
 
 const PARSE_ERROR_LIMIT = 5;
@@ -35,24 +37,35 @@ function countLines(text: string): number {
 
 // Turns a repository on disk into its files and the dependency relationships
 // between them. Reads only the local filesystem.
+//
+// `adapters` are the frameworks to look for, in the order to try them. With
+// none, or when none matches, every file gets a generic role and there are no
+// routes.
 export function parseRepository(
   directory: string,
-  adapter: FrameworkAdapter = fallbackAdapter,
+  adapters: FrameworkAdapter[] = [],
 ): ParserOutput {
   const root = fs.realpathSync.native(path.resolve(directory));
   if (!fs.statSync(root).isDirectory()) {
     throw new Error(`${root} is not a directory.`);
   }
 
-  const rules = [...coreExclusionRules, ...adapter.exclusionRules];
+  const rules = coreExclusionRules;
   const walk = walkRepository(root, rules);
 
-  // Package roots, to give each file its module identity.
+  // Package roots, to give each file its module identity, and what each
+  // package depends on, which is how a framework is recognised.
   const packageNameByFolder = new Map<string, string | null>();
-  for (const file of walk.skippedFiles.keys()) {
+  const manifests: Manifest[] = [];
+  for (const file of [...walk.skippedFiles.keys()].sort(byText)) {
     if (path.posix.basename(file) === "package.json") {
       const folder = file.includes("/") ? path.posix.dirname(file) : "";
       packageNameByFolder.set(folder, readPackageName(path.join(root, file)));
+      manifests.push({
+        path: file,
+        root: folder,
+        dependencies: readPackageDependencies(path.join(root, file)),
+      });
     }
   }
   function packageOf(folder: string): FileNode["package"] {
@@ -66,7 +79,7 @@ export function parseRepository(
   }
 
   const texts = new Map<string, string>();
-  const files: FileNode[] = walk.sourceFiles.map((relative) => {
+  const unclassified: Omit<FileNode, "role">[] = walk.sourceFiles.map((relative) => {
     const bytes = fs.readFileSync(path.join(root, relative));
     const text = bytes.toString("utf8");
     texts.set(path.join(root, relative), text);
@@ -114,7 +127,10 @@ export function parseRepository(
 
   const resolver = createResolver(root, walk);
   const references: ResolvedReference[] = [];
-  for (const file of files) {
+  // Only files that parsed cleanly: the tree of one with syntax errors is a
+  // best-effort recovery, and no role or route is read from it.
+  const syntax = new Map<string, ts.SourceFile>();
+  for (const file of unclassified) {
     const sourceFile = program.getSourceFile(path.join(root, file.path));
     if (!sourceFile) throw new Error(`${file.path} was not loaded by the TypeScript parser.`);
     const errors = program
@@ -130,10 +146,35 @@ export function parseRepository(
       // References read from it could be artefacts, so none are taken.
       continue;
     }
+    syntax.set(file.path, sourceFile);
     for (const site of extractReferences(sourceFile)) {
       references.push({ source: file.path, site, resolution: resolver.resolve(file.path, site) });
     }
   }
+
+  // The adapter sees the files of the packages that name its framework and
+  // no others. Everything it does not place gets a generic role here.
+  const choice = selectAdapter(adapters, manifests);
+  const scope = new Set(choice.evidence.map((entry) => entry.root));
+  const analysis = choice.adapter.analyse(
+    unclassified.flatMap((file) =>
+      file.package && scope.has(file.package.root)
+        ? [
+            {
+              path: file.path,
+              packageRoot: file.package.root,
+              declaration: file.declaration,
+              syntax: syntax.get(file.path) ?? null,
+            },
+          ]
+        : [],
+    ),
+  );
+  const frameworkLabel = FRAMEWORKS[choice.adapter.name].label;
+  const files: FileNode[] = unclassified.map((file) => ({
+    ...file,
+    role: analysis.roles.get(file.path) ?? supportingRole(file) ?? otherRole(frameworkLabel),
+  }));
 
   const edges = buildEdges(references);
   const unlinkedReferences = references.flatMap(
@@ -161,7 +202,8 @@ export function parseRepository(
 
   return {
     schemaVersion: SCHEMA_VERSION,
-    adapter: adapter.name,
+    adapter: choice.adapter.name,
+    framework: { evidence: choice.evidence, notes: [...choice.notes, ...analysis.notes] },
     exclusionRules,
     resolutionConfigs: resolver.configs(),
     files,
@@ -171,6 +213,16 @@ export function parseRepository(
     metrics: computeMetrics(
       files.map((file) => file.id),
       edges,
+    ),
+    routes: [...analysis.routes].sort(
+      (a, b) =>
+        byText(a.pattern, b.pattern) ||
+        byText(a.method ?? "", b.method ?? "") ||
+        byText(a.file, b.file) ||
+        (a.line ?? 0) - (b.line ?? 0),
+    ),
+    omittedRoutes: [...analysis.omittedRoutes].sort(
+      (a, b) => byText(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0),
     ),
     coverage: summarise(files, excluded, exclusionRules, references, edges.length),
   };

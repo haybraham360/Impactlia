@@ -13,5 +13,6 @@
     "rootDir": ".",
     "outDir": "../node_modules/.cache/impactlia-parser"
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts"],
+  "exclude": ["./checks"]
 }

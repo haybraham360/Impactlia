@@ -2,7 +2,8 @@
 -- each one sees only its own rows.
 --
 -- None of this is a real analysis. Every row hangs off a repository with
--- is_seed = true, and the dashboard labels those rows "Sample data".
+-- is_seed = true. The application never lists, counts or opens those rows:
+-- they exist to be queried directly when checking the policies.
 --
 -- Set the two organization ids below (the Overview page shows the current
 -- one), then run this file with a privileged role. It can be run again: it

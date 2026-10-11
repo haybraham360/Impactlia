@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { AnalysisWorkspace } from "@/components/analysis-workspace";
+import { summariseCoverage } from "@/lib/graph/coverage";
 import { buildGraphModel } from "@/lib/graph/model";
 import { PREVIEW_OUTPUT_FILE, readPreviewAnalysis } from "@/lib/preview-analysis";
 import { summariseRepository } from "@/lib/repository-overview";
@@ -53,6 +54,7 @@ async function Preview() {
     <AnalysisWorkspace
       overview={summariseRepository(analysis.output)}
       model={buildGraphModel(analysis.output)}
+      coverage={summariseCoverage(analysis.output)}
     />
   );
 }

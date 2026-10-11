@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { frameworkAdapters } from "./adapters";
 import type { ParserOutput, ReferenceCounts } from "./contract";
 import { parseRepository } from "./parse-repository";
+import { FRAMEWORKS, ROLES } from "./roles";
 import { readParserOutput } from "./validate";
 
 const USAGE = "Usage: pnpm parse <repository-directory> [--out <file.json>]";
@@ -64,6 +66,31 @@ function summary(output: ParserOutput): string[] {
     ...coverage.referencesByKind.map(({ kind, ...counts }) => `  ${kind.padEnd(18)}${countsLine(counts)}`),
   ];
 
+  lines.push("", `Framework: ${FRAMEWORKS[output.adapter].label ?? "none detected"}`);
+  for (const entry of output.framework.evidence) lines.push(`  ${entry.detail}`);
+  for (const note of output.framework.notes) lines.push(`  note: ${note.detail}`);
+
+  lines.push("", "File roles");
+  for (const id of FRAMEWORKS[output.adapter].roles) {
+    lines.push(row(ROLES[id].label, output.files.filter((file) => file.role.id === id).length));
+  }
+
+  lines.push("", `Routes (${output.routes.length})`);
+  for (const route of output.routes) {
+    lines.push(
+      `  ${(route.method ?? "PAGE").padEnd(8)}${route.pattern}  ← ${route.file}${route.line === null ? "" : `:${route.line}`}${route.handler ? `  ${route.handler}` : ""}`,
+    );
+  }
+  if (output.omittedRoutes.length > 0) {
+    lines.push("", `Routes not extracted (${output.omittedRoutes.length})`);
+    for (const omitted of output.omittedRoutes) {
+      lines.push(
+        `  ${omitted.file}${omitted.line === null ? "" : `:${omitted.line}`}${omitted.handler ? `  ${omitted.handler}` : ""}`,
+        `      ${omitted.reason}`,
+      );
+    }
+  }
+
   const failed = output.files.filter((file) => file.parseStatus === "failed");
   if (failed.length > 0) {
     lines.push("", "Files that failed to parse");
@@ -121,7 +148,7 @@ function summary(output: ParserOutput): string[] {
 
 function main(): void {
   const { directory, out } = readArguments(process.argv.slice(2));
-  const output = parseRepository(directory);
+  const output = parseRepository(directory, frameworkAdapters);
   const json = `${JSON.stringify(output, null, 2)}\n`;
 
   console.log(`Repository: ${path.resolve(directory)}`);

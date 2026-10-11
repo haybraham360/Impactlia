@@ -67,6 +67,7 @@ function Row({
   hover,
   highlighted,
   onClick,
+  children,
 }: {
   label: string;
   title: string;
@@ -75,6 +76,7 @@ function Row({
   hover: Hover;
   highlighted: boolean;
   onClick: () => void;
+  children?: ReactNode;
 }) {
   return (
     <li>
@@ -96,6 +98,7 @@ function Row({
         <span className="min-w-0 font-mono text-[0.8125rem] break-all">{label}</span>
         {note && <span className="ml-auto shrink-0 text-xs text-muted">{note}</span>}
       </button>
+      {children}
     </li>
   );
 }
@@ -107,11 +110,14 @@ export function FileRow({
   note,
   direction,
   onSelect,
+  children,
 }: {
   file: GraphFile;
   note?: string;
   direction?: Direction;
   onSelect: (selection: Selection) => void;
+  // Shown under the path, outside the button: the evidence for the row.
+  children?: ReactNode;
 }) {
   const highlighted = useHovered(
     (hover) =>
@@ -126,7 +132,9 @@ export function FileRow({
       hover={{ file: file.id, folder: file.folder }}
       highlighted={highlighted}
       onClick={() => onSelect({ kind: "file", id: file.id })}
-    />
+    >
+      {children}
+    </Row>
   );
 }
 

@@ -1,5 +1,13 @@
-import { fallbackAdapter } from "@/parser/adapter";
-import type { FileNode, ParserOutput, UnresolvedReason } from "@/parser/contract";
+import type {
+  FileNode,
+  FrameworkEvidence,
+  FrameworkNote,
+  OmittedRoute,
+  ParserOutput,
+  RouteRecord,
+  UnresolvedReason,
+} from "@/parser/contract";
+import { FRAMEWORKS, type RoleId } from "@/parser/roles";
 
 export type FileGroup = { label: string; files: number };
 
@@ -7,8 +15,17 @@ export type RepositoryOverview = {
   // The name in the repository's root package.json, as the parser recorded
   // it. null when the root has none; the parser output carries no other name.
   name: string | null;
-  // null when the parser ran without a framework adapter.
-  framework: string | null;
+  framework: {
+    // null when no supported framework was detected.
+    label: string | null;
+    // The file roles this framework has, in the order they are shown.
+    roles: readonly RoleId[];
+    evidence: FrameworkEvidence[];
+    notes: FrameworkNote[];
+  };
+  // Exactly what the parser's adapter extracted, and what it declined to.
+  routes: RouteRecord[];
+  omittedRoutes: OmittedRoute[];
   files: number;
   failedFiles: number;
   edges: number;
@@ -66,7 +83,14 @@ export function summariseRepository(output: ParserOutput): RepositoryOverview {
 
   return {
     name: output.files.find((file) => file.package?.root === "")?.package?.name ?? null,
-    framework: output.adapter === fallbackAdapter.name ? null : output.adapter,
+    framework: {
+      label: FRAMEWORKS[output.adapter].label,
+      roles: FRAMEWORKS[output.adapter].roles,
+      evidence: output.framework.evidence,
+      notes: output.framework.notes,
+    },
+    routes: output.routes,
+    omittedRoutes: output.omittedRoutes,
     unresolvedByReason: output.coverage.unresolvedByReason.map(({ reason, count }) => ({
       reason,
       count,
