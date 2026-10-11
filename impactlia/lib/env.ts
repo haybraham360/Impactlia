@@ -14,6 +14,12 @@ function required(name: string): string {
   return value;
 }
 
+// A value the application runs without. What is missing is reported where it
+// matters instead of stopping the server.
+function optional(name: string): string | null {
+  return process.env[name]?.trim() || null;
+}
+
 function requiredUrl(name: string): string {
   const value = required(name);
   if (value && !URL.canParse(value)) {
@@ -27,6 +33,10 @@ export const env = {
   clerkSecretKey: required("CLERK_SECRET_KEY"),
   supabaseUrl: requiredUrl("NEXT_PUBLIC_SUPABASE_URL"),
   supabasePublishableKey: required("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
+  openaiApiKey: required("OPENAI_API_KEY"),
+  // Without this, AI runs are still recorded in the database but are not sent
+  // to LangSmith. The AI runs page says so.
+  langsmithApiKey: optional("LANGSMITH_API_KEY"),
 };
 
 if (missing.length > 0) {

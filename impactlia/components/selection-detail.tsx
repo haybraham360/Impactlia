@@ -14,8 +14,15 @@ import {
   folderPath,
   numberFormat,
 } from "@/components/detail-parts";
+import {
+  ExplanationPanel,
+  useExplanations,
+  type AiContext,
+} from "@/components/explanation-panel";
 import { RepositorySummary, reasonLabel } from "@/components/repository-summary";
 import { TraversalResults } from "@/components/traversal-results";
+import { SUGGESTED_ROLE_LABELS } from "@/lib/ai/roles";
+import type { RoleSuggestion } from "@/lib/ai/types";
 import type { GraphEdge, GraphFile, GraphFolder, GraphModel } from "@/lib/graph/model";
 import type { Relations, Selection } from "@/lib/graph/selection";
 import type { Traversal, TraversalDirection } from "@/lib/graph/traverse";
@@ -57,10 +64,14 @@ function FileStructure({
   fileById,
   controls,
   routes,
+  suggestedRole,
   unresolvedInRepository,
   onSelect,
 }: {
   file: GraphFile;
+  // A model’s suggestion for a file no rule placed. Shown beside the role,
+  // never in place of it.
+  suggestedRole: RoleSuggestion | undefined;
   // The routes read out of this file.
   routes: RouteRecord[];
   relations: Relations;
@@ -95,6 +106,9 @@ function FileStructure({
             <span className="font-mono text-[0.8125rem]">{file.type}</span>
           </Fact>
           <Fact label="Role">{ROLES[file.role.id].label}</Fact>
+          {suggestedRole && (
+            <Fact label="Suggested role (AI)">{SUGGESTED_ROLE_LABELS[suggestedRole.role]}</Fact>
+          )}
           <Fact label="Lines">{numberFormat.format(file.lineCount)}</Fact>
           <Fact label="Parse status">
             {failed ? <span className="text-critical">Could not be parsed</span> : "Parsed"}
@@ -107,6 +121,12 @@ function FileStructure({
           Role: {file.role.reason}
           {file.role.line !== null && ` Line ${numberFormat.format(file.role.line)}.`}
         </p>
+        {suggestedRole && (
+          <p className="mt-1 text-xs break-words text-muted">
+            Suggested role: a guess by {suggestedRole.model} from the file’s source. It does
+            not change the role above, the route table or any dependency.
+          </p>
+        )}
         {/* Pressing the open view again returns to the direct relationships. */}
         <div role="group" aria-label="Follow imports further" className="mt-3 flex flex-wrap gap-2">
           {views.map(({ id, label }) => (
@@ -336,16 +356,21 @@ function FolderStructure({
 
 // The right-hand pane. With nothing selected it summarises the repository;
 // with a selection it lists that file's or folder's relationships exactly as
-// the edge list has them. It never adds to them, and everything it shows was
-// already in the browser when the page loaded.
+// the edge list has them. It never adds to them. The Structure tab shows only
+// what was in the browser when the page loaded; the Explanation tab is the one
+// place that asks a server for more, and what it shows is labelled as a
+// model’s interpretation.
 export function SelectionDetail({
   overview,
   model,
   selection,
   relations,
   controls,
+  ai,
   onSelect,
 }: {
+  // Absent where there is no stored repository to explain from.
+  ai?: AiContext;
   overview: RepositoryOverview;
   model: GraphModel;
   selection: Selection | null;
@@ -360,6 +385,8 @@ export function SelectionDetail({
     () => new Map(model.files.map((file) => [file.id, file])),
     [model],
   );
+  const knownFiles = useMemo(() => new Set(fileById.keys()), [fileById]);
+  const explanations = useExplanations(ai);
 
   const file = selection?.kind === "file" ? fileById.get(selection.id) : undefined;
   const folder =
@@ -419,14 +446,14 @@ export function SelectionDetail({
 
       <div role="tabpanel" id="detail-panel" aria-labelledby={`detail-tab-${tab}`}>
         {tab === "explanation" ? (
-          <div className="px-5 py-4">
-            <h3 className="font-medium">No explanation yet</h3>
-            <p className="mt-1 text-muted">
-              Impactlia does not write explanations yet, so there is nothing
-              here for this {file ? "file" : "folder"}. Everything known about
-              it is on the Structure tab, read directly from the repository.
-            </p>
-          </div>
+          <ExplanationPanel
+            ai={ai}
+            explanations={explanations}
+            kind={selection.kind}
+            id={selection.id}
+            knownFiles={knownFiles}
+            onSelectFile={(id) => onSelect({ kind: "file", id })}
+          />
         ) : (
           <>
             {file ? (
@@ -436,6 +463,7 @@ export function SelectionDetail({
                 fileById={fileById}
                 controls={controls}
                 routes={overview.routes.filter((route) => route.file === file.id)}
+                suggestedRole={explanations.role(file.id)}
                 unresolvedInRepository={overview.unresolvedReferences}
                 onSelect={onSelect}
               />

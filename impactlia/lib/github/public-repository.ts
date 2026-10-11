@@ -7,7 +7,8 @@ import type { RepositoryReference } from "./repository-url";
 // GitHub's responses leaves this file except the plain values below.
 //
 // Unauthenticated requests share GitHub's limit of 60 an hour per server
-// address. One analysis makes three.
+// address. One analysis makes three, opening a repository makes one, and
+// each explanation that is not already cached makes one.
 
 export type PublicRepository = {
   // GitHub's own id, which survives a rename or a transfer.
@@ -109,7 +110,9 @@ export async function findPublicRepository(
 }
 
 // The commit the default branch points at right now.
-export async function findHeadCommit(repository: PublicRepository): Promise<string> {
+export async function findHeadCommit(
+  repository: RepositoryReference & { defaultBranch: string },
+): Promise<string> {
   const response = await request(
     `${repositoryApi(repository)}/commits/${encodeURIComponent(repository.defaultBranch)}`,
     "application/vnd.github.sha",
@@ -165,4 +168,37 @@ export async function downloadArchive(
   } finally {
     fs.closeSync(descriptor);
   }
+}
+
+// One file exactly as it was at one commit. Refuses a file over `maxBytes`
+// rather than returning part of it, because the caller checks the bytes
+// against a hash.
+export async function fetchFileAtCommit(
+  repository: RepositoryReference,
+  commitSha: string,
+  filePath: string,
+  maxBytes: number,
+): Promise<Buffer> {
+  const encoded = filePath.split("/").map(encodeURIComponent).join("/");
+  const response = await request(
+    `${repositoryApi(repository)}/contents/${encoded}?ref=${commitSha}`,
+    "application/vnd.github.raw+json",
+    REQUEST_TIMEOUT_MS,
+  );
+  if (response.status === 404) {
+    throw new IngestionError(
+      `GitHub no longer has ${filePath} at commit ${commitSha.slice(0, 7)}, or the repository is no longer public.`,
+    );
+  }
+  if (!response.ok) throw refusal(response, repository);
+  const tooLarge = new IngestionError(
+    `${filePath} is larger than ${Math.round(maxBytes / 1024)} KB, which is over the limit for reading one file.`,
+  );
+  if (Number(response.headers.get("content-length")) > maxBytes) {
+    await response.body?.cancel();
+    throw tooLarge;
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > maxBytes) throw tooLarge;
+  return bytes;
 }

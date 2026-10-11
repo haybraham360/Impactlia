@@ -10,13 +10,16 @@
     "parse": "tsc -p parser/tsconfig.json && node node_modules/.cache/impactlia-parser/cli.js",
     "check:graph": "tsc -p lib/graph/checks/tsconfig.json && node --test node_modules/.cache/impactlia-graph-checks/checks/graph.test.js",
     "check:adapters": "tsc -p parser/checks/tsconfig.json && node --test node_modules/.cache/impactlia-adapter-checks/checks/adapters.test.js",
-    "check:ingestion": "tsc -p lib/ingestion/checks/tsconfig.json && node --test node_modules/.cache/impactlia-ingestion-checks/lib/ingestion/checks/ingestion.test.js"
+    "check:ingestion": "tsc -p lib/ingestion/checks/tsconfig.json && node --test node_modules/.cache/impactlia-ingestion-checks/lib/ingestion/checks/ingestion.test.js",
+    "check:ai": "tsc -p lib/ai/checks/tsconfig.json && node --test node_modules/.cache/impactlia-ai-checks/lib/ai/checks/ai.test.js"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.11",
     "@supabase/supabase-js": "^2.117.3",
     "@xyflow/react": "^12.12.0",
+    "langsmith": "^0.10.11",
     "next": "16.4.0",
+    "openai": "^7.32.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "typescript": "^5"

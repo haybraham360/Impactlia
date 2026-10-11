@@ -17,6 +17,147 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_results: {
+        Row: {
+          body: string
+          content_hash: string
+          context_hash: string
+          created_at: string
+          id: string
+          input_hash: string
+          model: string
+          omitted: string[]
+          organization_id: string
+          prompt_version: string
+          repository_id: string
+          source_sha: string | null
+          subject: string
+          task: Database["public"]["Enums"]["ai_task"]
+        }
+        Insert: {
+          body: string
+          content_hash: string
+          context_hash: string
+          created_at?: string
+          id?: string
+          input_hash: string
+          model: string
+          omitted?: string[]
+          organization_id: string
+          prompt_version: string
+          repository_id: string
+          source_sha?: string | null
+          subject: string
+          task: Database["public"]["Enums"]["ai_task"]
+        }
+        Update: {
+          body?: string
+          content_hash?: string
+          context_hash?: string
+          created_at?: string
+          id?: string
+          input_hash?: string
+          model?: string
+          omitted?: string[]
+          organization_id?: string
+          prompt_version?: string
+          repository_id?: string
+          source_sha?: string | null
+          subject?: string
+          task?: Database["public"]["Enums"]["ai_task"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_results_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_results_repository_fkey"
+            columns: ["repository_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "repositories"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      ai_runs: {
+        Row: {
+          cache_status: Database["public"]["Enums"]["ai_cache_status"]
+          error_summary: string | null
+          external_trace: boolean
+          finished_at: string
+          id: string
+          input_hash: string
+          input_tokens: number | null
+          model: string
+          model_called: boolean
+          organization_id: string
+          outcome: Database["public"]["Enums"]["ai_run_outcome"]
+          output_tokens: number | null
+          prompt_version: string
+          repository_id: string
+          started_at: string
+          subject: string
+          task: Database["public"]["Enums"]["ai_task"]
+        }
+        Insert: {
+          cache_status: Database["public"]["Enums"]["ai_cache_status"]
+          error_summary?: string | null
+          external_trace: boolean
+          finished_at: string
+          id?: string
+          input_hash: string
+          input_tokens?: number | null
+          model: string
+          model_called: boolean
+          organization_id: string
+          outcome: Database["public"]["Enums"]["ai_run_outcome"]
+          output_tokens?: number | null
+          prompt_version: string
+          repository_id: string
+          started_at: string
+          subject: string
+          task: Database["public"]["Enums"]["ai_task"]
+        }
+        Update: {
+          cache_status?: Database["public"]["Enums"]["ai_cache_status"]
+          error_summary?: string | null
+          external_trace?: boolean
+          finished_at?: string
+          id?: string
+          input_hash?: string
+          input_tokens?: number | null
+          model?: string
+          model_called?: boolean
+          organization_id?: string
+          outcome?: Database["public"]["Enums"]["ai_run_outcome"]
+          output_tokens?: number | null
+          prompt_version?: string
+          repository_id?: string
+          started_at?: string
+          subject?: string
+          task?: Database["public"]["Enums"]["ai_task"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_runs_repository_fkey"
+            columns: ["repository_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "repositories"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
       analyses: {
         Row: {
           affected_file_count: number | null
@@ -525,6 +666,9 @@ export type Database = {
       requesting_organization_id: { Args: never; Returns: string }
     }
     Enums: {
+      ai_cache_status: "hit" | "miss" | "read-failed" | "write-failed"
+      ai_run_outcome: "succeeded" | "input-failed" | "model-failed" | "rejected"
+      ai_task: "file-explanation" | "folder-explanation" | "role-classification"
       analysis_file_kind: "changed" | "affected"
       analysis_status: "pending" | "running" | "completed" | "failed"
       file_change_type: "added" | "modified" | "removed" | "renamed"

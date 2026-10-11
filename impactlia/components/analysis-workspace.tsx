@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { AnalysisLayout } from "@/components/analysis-layout";
+import type { AiContext } from "@/components/explanation-panel";
 import { CoverageBanner } from "@/components/coverage-banner";
 import { HoverContext, createHoverStore } from "@/components/hover";
 import { ImpactGraph } from "@/components/impact-graph";
@@ -28,7 +29,9 @@ export function AnalysisWorkspace({
   overview,
   model,
   coverage,
+  ai,
 }: {
+  ai?: AiContext;
   overview: RepositoryOverview;
   model: GraphModel;
   coverage: CoverageSummary;
@@ -109,6 +112,7 @@ export function AnalysisWorkspace({
             selection={selection}
             relations={relations}
             controls={{ view, traversal, onView: chooseView, onDepth: setDepth }}
+            ai={ai}
             onSelect={select}
           />
         }

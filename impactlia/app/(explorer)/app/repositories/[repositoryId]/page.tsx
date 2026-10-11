@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { AnalysisWorkspace } from "@/components/analysis-workspace";
 import { SubmitButton } from "@/components/submit-button";
+import { checkRevision, loadStoredAi } from "@/lib/ai/explain";
 import { summariseCoverage } from "@/lib/graph/coverage";
 import { buildGraphModel } from "@/lib/graph/model";
 import { reanalyzeRepository, retryRun } from "@/lib/ingestion/actions";
@@ -188,14 +189,30 @@ async function Explorer({ params }: { params: Promise<{ repositoryId: string }> 
     );
   }
 
+  const model = buildGraphModel(output);
   return (
     <>
       <Header analysis={analysis} />
       {latestRun && <LatestRunNote run={latestRun} />}
+      {/* Keyed by the run, so explanations held in the browser never outlive
+          the analysis they were compared with. */}
       <AnalysisWorkspace
+        key={graph.completedAt ?? "analysis"}
         overview={summariseRepository(output)}
-        model={buildGraphModel(output)}
+        model={model}
         coverage={summariseCoverage(output)}
+        ai={{
+          repositoryId: analysis.repository.id,
+          stored: await loadStoredAi(
+            analysis.repository.id,
+            output,
+            model.folders,
+            graph.sourceSha,
+          ),
+          // Not awaited: the map is shown at once and the answer from GitHub
+          // arrives in the Explanation tab when it is ready.
+          revision: checkRevision(analysis.repository, graph.sourceSha),
+        }}
       />
     </>
   );
