@@ -1,5 +1,6 @@
 import { filesIn, type InsightCategory, type Insights } from "./insights";
 import { linkId } from "./layout";
+import { ROLES, type RoleId } from "@/parser/roles";
 import type { GraphModel } from "./model";
 import type { Traversal } from "./traverse";
 
@@ -66,6 +67,27 @@ export function emphasiseTraversal(model: GraphModel, traversal: Traversal): Emp
     legend: blast
       ? `Blast radius: the selected file and the files that import it, ${within}. The rest is dimmed, not removed.`
       : `Dependency chain: the selected file and the files it imports, ${within}. The rest is dimmed, not removed.`,
+  };
+}
+
+// What the rail can pick out on the graph. One at a time.
+export type GraphFilter =
+  | { kind: "insight"; id: InsightCategory }
+  | { kind: "role"; id: RoleId };
+
+// The one list a role's count in the rail and its emphasis on the graph are
+// both taken from.
+export function filesWithRole(model: GraphModel, role: RoleId): string[] {
+  return model.files.filter((file) => file.role.id === role).map((file) => file.id);
+}
+
+// A role is a fact about each file on its own, so no line is picked out.
+export function emphasiseRole(model: GraphModel, role: RoleId): Emphasis {
+  return {
+    ...build(model, filesWithRole(model, role), [], []),
+    line: "plain",
+    noun: "matching",
+    legend: `Filter: ${ROLES[role].label}. Files that do not match are dimmed, not removed.`,
   };
 }
 

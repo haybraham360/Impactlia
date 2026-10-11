@@ -1,3 +1,5 @@
+import type { FrameworkName, RoleId } from "./roles";
+
 // The data contract every later phase consumes. Nothing in it is specific to
 // one machine or one run: paths are repository-relative with forward slashes
 // and there are no timestamps, so the same repository state always serialises
@@ -6,7 +8,7 @@
 // Extending it: add optional fields freely. Renaming, removing or changing
 // the meaning of a field means bumping SCHEMA_VERSION.
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const REFERENCE_KINDS = [
   "import",
@@ -51,6 +53,53 @@ export type ParseStatus = (typeof PARSE_STATUSES)[number];
 export const EXCLUDED_PATH_TYPES = ["file", "directory"] as const;
 export type ExcludedPathType = (typeof EXCLUDED_PATH_TYPES)[number];
 
+// Why a file has the role it has. `line` is where the syntax that decided it
+// sits, and null when the file's path alone decided it.
+export type FileRole = { id: RoleId; reason: string; line: number | null };
+
+export const ROUTE_KINDS = ["page", "http"] as const;
+// "page" is an address a browser opens; "http" is an endpoint a request calls.
+export type RouteKind = (typeof ROUTE_KINDS)[number];
+
+// One route an adapter read out of the repository. A record exists only when
+// both the pattern and, for an endpoint, the method were stated by the source
+// or by a documented file convention. Anything less is an OmittedRoute.
+export type RouteRecord = {
+  framework: FrameworkName;
+  kind: RouteKind;
+  // null for a page. "ANY" when the handler receives every method.
+  method: string | null;
+  // In the framework's own syntax, parameter names untouched.
+  pattern: string;
+  file: string;
+  // The exported symbol or Class.method that handles it.
+  handler: string | null;
+  // Where the handler or its decorator is. null when the path alone is the
+  // evidence.
+  line: number | null;
+  evidence: string;
+};
+
+// Something that looks like a route by convention or decorator, for which no
+// record was made because part of it could not be read from the source.
+export type OmittedRoute = {
+  file: string;
+  line: number | null;
+  handler: string | null;
+  reason: string;
+};
+
+export type FrameworkEvidence = {
+  // The package.json that names the framework, and the folder it governs.
+  file: string;
+  root: string;
+  detail: string;
+};
+
+// Something the adapter saw and does not model, which a reader of the route
+// table should know about.
+export type FrameworkNote = { file: string | null; line: number | null; detail: string };
+
 export type FileNode = {
   // Today this is the repository-relative path. Treat it as opaque: it is the
   // key edges and metrics use, and it may stop being a path.
@@ -73,6 +122,7 @@ export type FileNode = {
   // no references are read out of it.
   parseStatus: ParseStatus;
   parseErrors: { line: number; message: string }[];
+  role: FileRole;
 };
 
 export type ExclusionRuleSummary = { id: string; description: string };
@@ -169,7 +219,9 @@ export type ResolutionConfig = { path: string; problems: string[] };
 
 export type ParserOutput = {
   schemaVersion: typeof SCHEMA_VERSION;
-  adapter: string;
+  adapter: FrameworkName;
+  // What selected the adapter; empty when none matched.
+  framework: { evidence: FrameworkEvidence[]; notes: FrameworkNote[] };
   exclusionRules: ExclusionRuleSummary[];
   resolutionConfigs: ResolutionConfig[];
   files: FileNode[];
@@ -177,5 +229,7 @@ export type ParserOutput = {
   edges: DependencyEdge[];
   unlinkedReferences: UnlinkedReference[];
   metrics: FileMetrics[];
+  routes: RouteRecord[];
+  omittedRoutes: OmittedRoute[];
   coverage: Coverage;
 };

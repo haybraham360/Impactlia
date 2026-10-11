@@ -224,8 +224,7 @@ function NoRuns() {
         <p className="mt-1 max-w-prose text-sm text-muted">
           Each analysis will be listed here with its state, the files the pull
           request changed, the files it could affect and its risk level.
-          Connecting a repository and starting an analysis are not available
-          yet.
+          Analyzing a pull request is not available yet.
         </p>
       </div>
       <ol className="grid gap-6 px-6 py-6 text-sm sm:grid-cols-3">

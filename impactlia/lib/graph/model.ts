@@ -1,4 +1,4 @@
-import type { ParseStatus, ParserOutput, UnresolvedReason } from "@/parser/contract";
+import type { FileRole, ParseStatus, ParserOutput, UnresolvedReason } from "@/parser/contract";
 import { ROOT_LABEL, fileType } from "../repository-overview";
 
 // What the canvas draws. Everything here is taken or counted from the parser
@@ -14,6 +14,8 @@ export type GraphFile = {
   fanIn: number;
   fanOut: number;
   type: string;
+  // The role the parser's framework adapter gave the file, and why.
+  role: FileRole;
   lineCount: number;
   parseStatus: ParseStatus;
   parseErrors: { line: number; message: string }[];
@@ -218,6 +220,7 @@ export function buildGraphModel(output: ParserOutput): GraphModel {
         fanIn: metric.fanIn,
         fanOut: metric.fanOut,
         type: fileType(file),
+        role: file.role,
         lineCount: file.lineCount,
         parseStatus: file.parseStatus,
         parseErrors: file.parseErrors,

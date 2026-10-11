@@ -2,26 +2,36 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { AnalysisLayout } from "@/components/analysis-layout";
+import { CoverageBanner } from "@/components/coverage-banner";
 import { HoverContext, createHoverStore } from "@/components/hover";
 import { ImpactGraph } from "@/components/impact-graph";
 import { RepositoryRail } from "@/components/repository-rail";
+import { RouteTable } from "@/components/route-table";
 import { SelectionDetail, type FileView } from "@/components/selection-detail";
-import { emphasiseCategory, emphasiseTraversal } from "@/lib/graph/emphasis";
-import { findInsights, type InsightCategory } from "@/lib/graph/insights";
+import type { CoverageSummary } from "@/lib/graph/coverage";
+import {
+  emphasiseCategory,
+  emphasiseRole,
+  emphasiseTraversal,
+  type GraphFilter,
+} from "@/lib/graph/emphasis";
+import { findInsights } from "@/lib/graph/insights";
 import type { GraphModel } from "@/lib/graph/model";
 import { relate, type Selection } from "@/lib/graph/selection";
 import { DEFAULT_DEPTH, indexEdges, traverse } from "@/lib/graph/traverse";
 import type { RepositoryOverview } from "@/lib/repository-overview";
 
 // Owns what the three columns share: what is selected, what is hovered, and
-// which traversal or insight filter the graph is emphasising. All of it is
+// which traversal or rail filter the graph is emphasising. All of it is
 // worked out here from the model already in the browser.
 export function AnalysisWorkspace({
   overview,
   model,
+  coverage,
 }: {
   overview: RepositoryOverview;
   model: GraphModel;
+  coverage: CoverageSummary;
 }) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [hover] = useState(createHoverStore);
@@ -31,7 +41,7 @@ export function AnalysisWorkspace({
   );
   const [view, setView] = useState<FileView>("structure");
   const [depth, setDepth] = useState(DEFAULT_DEPTH);
-  const [category, setCategory] = useState<InsightCategory | null>(null);
+  const [filter, setFilter] = useState<GraphFilter | null>(null);
 
   // Each depends on the model alone, so the whole-graph work happens once per
   // graph and again only when the graph itself is replaced.
@@ -47,9 +57,10 @@ export function AnalysisWorkspace({
     [index, selectedFile, view, depth],
   );
   const emphasis = useMemo(() => {
-    if (category) return emphasiseCategory(model, insights, category);
+    if (filter?.kind === "insight") return emphasiseCategory(model, insights, filter.id);
+    if (filter?.kind === "role") return emphasiseRole(model, filter.id);
     return traversal ? emphasiseTraversal(model, traversal) : null;
-  }, [model, insights, category, traversal]);
+  }, [model, insights, filter, traversal]);
 
   const select = useCallback(
     (next: Selection | null) => {
@@ -63,18 +74,18 @@ export function AnalysisWorkspace({
     },
     [hover],
   );
-  // A traversal and an insight filter both decide what the graph dims, so
+  // A traversal and a rail filter both decide what the graph dims, so
   // turning one on turns the other off.
   const chooseView = useCallback((next: FileView) => {
     setView(next);
-    if (next !== "structure") setCategory(null);
+    if (next !== "structure") setFilter(null);
   }, []);
-  const chooseCategory = useCallback((next: InsightCategory | null) => {
-    setCategory(next);
+  const chooseFilter = useCallback((next: GraphFilter | null) => {
+    setFilter(next);
     if (next) setView("structure");
   }, []);
   const clearEmphasis = useCallback(() => {
-    setCategory(null);
+    setFilter(null);
     setView("structure");
   }, []);
 
@@ -86,8 +97,8 @@ export function AnalysisWorkspace({
             overview={overview}
             model={model}
             insights={insights}
-            category={category}
-            onCategory={chooseCategory}
+            filter={filter}
+            onFilter={chooseFilter}
             onSelect={select}
           />
         }
@@ -102,14 +113,22 @@ export function AnalysisWorkspace({
           />
         }
       >
-        <ImpactGraph
-          model={model}
-          selection={selection}
-          relations={relations}
-          emphasis={emphasis}
-          onClearEmphasis={clearEmphasis}
-          onSelect={select}
-        />
+        {/* The banner takes its own row above the canvas, so it can never be
+            panned or zoomed out of sight. */}
+        <div className="absolute inset-0 flex flex-col">
+          <CoverageBanner coverage={coverage} />
+          <div className="relative min-h-0 flex-1">
+            <ImpactGraph
+              model={model}
+              selection={selection}
+              relations={relations}
+              emphasis={emphasis}
+              onClearEmphasis={clearEmphasis}
+              onSelect={select}
+            />
+          </div>
+          <RouteTable overview={overview} selectedFile={selectedFile} onSelect={select} />
+        </div>
       </AnalysisLayout>
     </HoverContext>
   );

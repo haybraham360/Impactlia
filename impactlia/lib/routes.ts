@@ -2,6 +2,9 @@
 // organization lives under this prefix.
 export const WORKSPACE_PATH = "/app";
 export const TEAM_PATH = `${WORKSPACE_PATH}/team`;
+export const repositoryPath = (repositoryId: string) =>
+  `${WORKSPACE_PATH}/repositories/${repositoryId}`;
+export const runPath = (runId: string) => `${WORKSPACE_PATH}/runs/${runId}`;
 
 export const SIGN_IN_PATH = "/sign-in";
 export const SIGN_UP_PATH = "/sign-up";

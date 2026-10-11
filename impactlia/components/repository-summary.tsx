@@ -62,15 +62,19 @@ export function RepositorySummary({
         </p>
         <div className="mt-3">
           <Facts>
-            <Fact label="Framework">{overview.framework ?? "Not detected"}</Fact>
+            <Fact label="Framework">{overview.framework.label ?? "Not detected"}</Fact>
             <Fact label="Source files">{numberFormat.format(overview.files)}</Fact>
             <Fact label="Dependencies between files">
               {numberFormat.format(overview.edges)}
             </Fact>
-            {/* The parser contract carries no routes: no adapter identifies
-                them yet, so there is nothing to count. */}
-            <Fact label="Routes">Not detected</Fact>
+            <Fact label="Routes">{numberFormat.format(overview.routes.length)}</Fact>
           </Facts>
+          {/* Why this framework, in the parser's own words. */}
+          {overview.framework.evidence.map((entry) => (
+            <p key={entry.file} className="mt-2 text-xs break-words text-muted">
+              {entry.detail}
+            </p>
+          ))}
         </div>
       </div>
 

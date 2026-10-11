@@ -190,7 +190,9 @@ export function createResolver(root: string, walk: WalkResult): Resolver {
     if (cached) return cached;
     const folder = source.includes("/") ? path.posix.dirname(source) : "";
     const nearest = nearestConfigPath(folder);
-    let config = nearest === null ? defaultConfig : loadConfig(path.join(root, nearest));
+    // `root` is the repository being analysed, never this application. The
+    // comment inside the call tells the bundler not to trace it as if it were.
+    let config = nearest === null ? defaultConfig : loadConfig(path.join(/* turbopackIgnore: true */ root, nearest));
     // A "solution" config lists no files itself and points at the configs
     // that do; the one that includes this file holds its real settings.
     const absoluteSource = canonical(path.join(root, source));
@@ -388,6 +390,27 @@ export function createResolver(root: string, walk: WalkResult): Resolver {
         )
         .sort((a, b) => byText(a.path, b.path)),
   };
+}
+
+// Every package named under dependencies, devDependencies and
+// peerDependencies, sorted. Versions are not read.
+export function readPackageDependencies(manifestPath: string): string[] {
+  const names = new Set<string>();
+  try {
+    const manifest: unknown = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    if (typeof manifest === "object" && manifest !== null) {
+      const fields: Record<string, unknown> = { ...manifest };
+      for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
+        const listed = fields[field];
+        if (typeof listed === "object" && listed !== null && !Array.isArray(listed)) {
+          for (const name of Object.keys(listed)) names.add(name);
+        }
+      }
+    }
+  } catch {
+    // An unreadable or malformed package.json depends on nothing we can name.
+  }
+  return [...names].sort();
 }
 
 export function readPackageName(manifestPath: string): string | null {

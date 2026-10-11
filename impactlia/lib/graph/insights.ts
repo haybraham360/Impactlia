@@ -40,8 +40,8 @@ export type Insights = {
 // normally loads a file with this name", which is why a missing import says
 // little about it. The first match names the file.
 //
-// The Next.js entries are matched by name, not by a detected framework: the
-// parser has no framework adapter yet. They are narrow on purpose. A
+// The Next.js entries are matched by name, not by the parser's framework
+// adapter, which this list predates. They are narrow on purpose. A
 // middleware-style name counts only at the repository root or in src/, and the
 // Pages Router's pages/ directory is left out, because a directory called
 // "pages" is not reliable evidence on its own.

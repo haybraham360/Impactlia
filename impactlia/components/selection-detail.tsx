@@ -20,6 +20,8 @@ import type { GraphEdge, GraphFile, GraphFolder, GraphModel } from "@/lib/graph/
 import type { Relations, Selection } from "@/lib/graph/selection";
 import type { Traversal, TraversalDirection } from "@/lib/graph/traverse";
 import { countBy, type RepositoryOverview } from "@/lib/repository-overview";
+import type { RouteRecord } from "@/parser/contract";
+import { ROLES } from "@/parser/roles";
 
 type Tab = "structure" | "explanation";
 
@@ -54,10 +56,13 @@ function FileStructure({
   relations,
   fileById,
   controls,
+  routes,
   unresolvedInRepository,
   onSelect,
 }: {
   file: GraphFile;
+  // The routes read out of this file.
+  routes: RouteRecord[];
   relations: Relations;
   fileById: ReadonlyMap<string, GraphFile>;
   controls: TraversalControls;
@@ -89,6 +94,7 @@ function FileStructure({
           <Fact label="Type">
             <span className="font-mono text-[0.8125rem]">{file.type}</span>
           </Fact>
+          <Fact label="Role">{ROLES[file.role.id].label}</Fact>
           <Fact label="Lines">{numberFormat.format(file.lineCount)}</Fact>
           <Fact label="Parse status">
             {failed ? <span className="text-critical">Could not be parsed</span> : "Parsed"}
@@ -96,6 +102,11 @@ function FileStructure({
           {/* Always shown, zero included, so a complete file says so. */}
           <Fact label="Unresolved imports">{numberFormat.format(file.unresolved.length)}</Fact>
         </Facts>
+        {/* The evidence for the role, so it can be checked against the file. */}
+        <p className="mt-2 text-xs break-words text-muted">
+          Role: {file.role.reason}
+          {file.role.line !== null && ` Line ${numberFormat.format(file.role.line)}.`}
+        </p>
         {/* Pressing the open view again returns to the direct relationships. */}
         <div role="group" aria-label="Follow imports further" className="mt-3 flex flex-wrap gap-2">
           {views.map(({ id, label }) => (
@@ -115,6 +126,27 @@ function FileStructure({
           ))}
         </div>
       </div>
+
+      {routes.length > 0 && (
+        <Section title="Routes in this file" count={routes.length}>
+          <ul className="space-y-2">
+            {routes.map((route, index) => (
+              <li key={index}>
+                <div className="flex items-baseline gap-2 font-mono text-[0.8125rem]">
+                  <span className="shrink-0 font-medium">{route.method ?? "Page"}</span>
+                  <span className="min-w-0 break-all">{route.pattern}</span>
+                  {route.line !== null && (
+                    <span className="ml-auto shrink-0 font-sans text-xs text-muted">
+                      line {numberFormat.format(route.line)}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs break-words text-muted">{route.evidence}</p>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       {traversal ? (
         <TraversalResults
@@ -403,6 +435,7 @@ export function SelectionDetail({
                 relations={relations}
                 fileById={fileById}
                 controls={controls}
+                routes={overview.routes.filter((route) => route.file === file.id)}
                 unresolvedInRepository={overview.unresolvedReferences}
                 onSelect={onSelect}
               />

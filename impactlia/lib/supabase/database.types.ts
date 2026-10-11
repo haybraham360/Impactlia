@@ -402,11 +402,126 @@ export type Database = {
           },
         ]
       }
+      repository_graphs: {
+        Row: {
+          organization_id: string
+          parser_output: Json
+          repository_id: string
+          run_id: string
+        }
+        Insert: {
+          organization_id: string
+          parser_output: Json
+          repository_id: string
+          run_id: string
+        }
+        Update: {
+          organization_id?: string
+          parser_output?: Json
+          repository_id?: string
+          run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "repository_graphs_repository_fkey"
+            columns: ["repository_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "repositories"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "repository_graphs_run_fkey"
+            columns: ["run_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "repository_runs"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      repository_runs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          edge_count: number | null
+          failure_reason: string | null
+          file_count: number | null
+          id: string
+          last_completed_stage:
+            | Database["public"]["Enums"]["repository_run_stage"]
+            | null
+          organization_id: string
+          progressed_at: string
+          repository_id: string | null
+          requested_url: string
+          source_sha: string | null
+          stage: Database["public"]["Enums"]["repository_run_stage"]
+          status: Database["public"]["Enums"]["repository_run_status"]
+          unresolved_count: number | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          edge_count?: number | null
+          failure_reason?: string | null
+          file_count?: number | null
+          id?: string
+          last_completed_stage?:
+            | Database["public"]["Enums"]["repository_run_stage"]
+            | null
+          organization_id: string
+          progressed_at?: string
+          repository_id?: string | null
+          requested_url: string
+          source_sha?: string | null
+          stage?: Database["public"]["Enums"]["repository_run_stage"]
+          status?: Database["public"]["Enums"]["repository_run_status"]
+          unresolved_count?: number | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          edge_count?: number | null
+          failure_reason?: string | null
+          file_count?: number | null
+          id?: string
+          last_completed_stage?:
+            | Database["public"]["Enums"]["repository_run_stage"]
+            | null
+          organization_id?: string
+          progressed_at?: string
+          repository_id?: string | null
+          requested_url?: string
+          source_sha?: string | null
+          stage?: Database["public"]["Enums"]["repository_run_stage"]
+          status?: Database["public"]["Enums"]["repository_run_status"]
+          unresolved_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "repository_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "repository_runs_repository_fkey"
+            columns: ["repository_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "repositories"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      complete_repository_run: {
+        Args: { parser_output: Json; run_id: string; source_sha?: string }
+        Returns: undefined
+      }
       requesting_organization_id: { Args: never; Returns: string }
     }
     Enums: {
@@ -414,6 +529,15 @@ export type Database = {
       analysis_status: "pending" | "running" | "completed" | "failed"
       file_change_type: "added" | "modified" | "removed" | "renamed"
       finding_origin: "deterministic" | "ai"
+      repository_run_stage:
+        | "validating"
+        | "fetching"
+        | "preparing"
+        | "parsing"
+        | "calculating"
+        | "saving"
+        | "complete"
+      repository_run_status: "running" | "completed" | "failed"
       risk_level: "low" | "medium" | "high"
       source_control_provider: "github"
     }

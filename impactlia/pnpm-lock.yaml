@@ -184,6 +184,9 @@ importers:
       react-dom:
         specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
+      typescript:
+        specifier: ^5
+        version: 5.9.3
     devDependencies:
       '@tailwindcss/turbopack':
         specifier: ^4
@@ -206,9 +209,6 @@ importers:
       tailwindcss:
         specifier: ^4
         version: 4.3.3
-      typescript:
-        specifier: ^5
-        version: 5.9.3
 
 packages:
 

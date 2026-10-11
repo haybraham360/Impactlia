@@ -11,11 +11,15 @@ import {
   type DependencyEdge,
   type ExcludedPath,
   type FileNode,
+  type OmittedRoute,
   type ParserOutput,
+  ROUTE_KINDS,
   type ReferenceCounts,
+  type RouteRecord,
   type UnlinkedReference,
 } from "./contract";
 import { computeMetrics } from "./graph";
+import { FALLBACK, FRAMEWORKS, FRAMEWORK_NAMES, ROLE_IDS, type RoleId } from "./roles";
 
 // Reading an analysis file back is the only place its shape is taken on
 // trust, so this checks every field and then checks that the graph agrees
@@ -60,9 +64,19 @@ function list<T>(value: unknown, at: string, item: (value: unknown, at: string) 
   return items.map((entry, index) => item(entry, `${at}[${index}]`));
 }
 
+// A line number, or null where the contract allows a path to be the evidence.
+function lineOrNull(value: unknown, at: string): number | null {
+  return value === null ? null : count(value, at);
+}
+
+function textOrNull(value: unknown, at: string): string | null {
+  return value === null ? null : text(value, at);
+}
+
 function fileNode(value: unknown, at: string): FileNode {
   const o = fields(value, at);
   const pkg = o.package === null ? null : fields(o.package, `${at}.package`);
+  const role = fields(o.role, `${at}.role`);
   return {
     id: text(o.id, `${at}.id`),
     path: text(o.path, `${at}.path`),
@@ -84,6 +98,35 @@ function fileNode(value: unknown, at: string): FileNode {
       const e = fields(entry, entryAt);
       return { line: count(e.line, `${entryAt}.line`), message: text(e.message, `${entryAt}.message`) };
     }),
+    role: {
+      id: oneOf(ROLE_IDS, role.id, `${at}.role.id`),
+      reason: text(role.reason, `${at}.role.reason`),
+      line: lineOrNull(role.line, `${at}.role.line`),
+    },
+  };
+}
+
+function routeRecord(value: unknown, at: string): RouteRecord {
+  const o = fields(value, at);
+  return {
+    framework: oneOf(FRAMEWORK_NAMES, o.framework, `${at}.framework`),
+    kind: oneOf(ROUTE_KINDS, o.kind, `${at}.kind`),
+    method: textOrNull(o.method, `${at}.method`),
+    pattern: text(o.pattern, `${at}.pattern`),
+    file: text(o.file, `${at}.file`),
+    handler: textOrNull(o.handler, `${at}.handler`),
+    line: lineOrNull(o.line, `${at}.line`),
+    evidence: text(o.evidence, `${at}.evidence`),
+  };
+}
+
+function omittedRoute(value: unknown, at: string): OmittedRoute {
+  const o = fields(value, at);
+  return {
+    file: text(o.file, `${at}.file`),
+    line: lineOrNull(o.line, `${at}.line`),
+    handler: textOrNull(o.handler, `${at}.handler`),
+    reason: text(o.reason, `${at}.reason`),
   };
 }
 
@@ -230,6 +273,34 @@ function checkConsistency(output: ParserOutput): void {
     if (!ids.has(reference.source)) wrong(`a reference comes from unknown file ${reference.source}.`);
   }
 
+  // A role only means something inside the framework that defines it, and a
+  // route is only a fact while it points at a file and says what it is.
+  const roles: readonly RoleId[] = FRAMEWORKS[output.adapter].roles;
+  for (const file of output.files) {
+    if (!roles.includes(file.role.id)) {
+      wrong(`${file.id} has the role ${file.role.id}, which ${output.adapter} does not define.`);
+    }
+  }
+  if (output.adapter === FALLBACK && output.framework.evidence.length > 0) {
+    wrong("no framework was selected, but there is evidence for one.");
+  }
+  if (output.adapter !== FALLBACK && output.framework.evidence.length === 0) {
+    wrong(`${output.adapter} was selected with no evidence for it.`);
+  }
+  for (const route of output.routes) {
+    if (!ids.has(route.file)) wrong(`route ${route.pattern} comes from unknown file ${route.file}.`);
+    if (route.framework !== output.adapter) {
+      wrong(`route ${route.pattern} is from ${route.framework}, not the selected ${output.adapter}.`);
+    }
+    if (!route.pattern.startsWith("/")) wrong(`route ${route.pattern} does not start with "/".`);
+    if ((route.kind === "http") !== (route.method !== null)) {
+      wrong(`route ${route.pattern} must have a method if, and only if, it is an HTTP endpoint.`);
+    }
+  }
+  for (const omitted of output.omittedRoutes) {
+    if (!ids.has(omitted.file)) wrong(`an omitted route comes from unknown file ${omitted.file}.`);
+  }
+
   const expected = computeMetrics(
     output.files.map((file) => file.id),
     output.edges,
@@ -271,9 +342,28 @@ export function readParserOutput(value: unknown): ParserOutput {
   if (o.schemaVersion !== SCHEMA_VERSION) {
     fail("output.schemaVersion", `${SCHEMA_VERSION}`);
   }
+  const framework = fields(o.framework, "output.framework");
   const output: ParserOutput = {
     schemaVersion: SCHEMA_VERSION,
-    adapter: text(o.adapter, "output.adapter"),
+    adapter: oneOf(FRAMEWORK_NAMES, o.adapter, "output.adapter"),
+    framework: {
+      evidence: list(framework.evidence, "output.framework.evidence", (entry, at) => {
+        const e = fields(entry, at);
+        return {
+          file: text(e.file, `${at}.file`),
+          root: text(e.root, `${at}.root`),
+          detail: text(e.detail, `${at}.detail`),
+        };
+      }),
+      notes: list(framework.notes, "output.framework.notes", (entry, at) => {
+        const e = fields(entry, at);
+        return {
+          file: textOrNull(e.file, `${at}.file`),
+          line: lineOrNull(e.line, `${at}.line`),
+          detail: text(e.detail, `${at}.detail`),
+        };
+      }),
+    },
     exclusionRules: list(o.exclusionRules, "output.exclusionRules", (entry, at) => {
       const e = fields(entry, at);
       return { id: text(e.id, `${at}.id`), description: text(e.description, `${at}.description`) };
@@ -294,6 +384,8 @@ export function readParserOutput(value: unknown): ParserOutput {
         fanOut: count(e.fanOut, `${at}.fanOut`),
       };
     }),
+    routes: list(o.routes, "output.routes", routeRecord),
+    omittedRoutes: list(o.omittedRoutes, "output.omittedRoutes", omittedRoute),
     coverage: coverage(o.coverage, "output.coverage"),
   };
   checkConsistency(output);
