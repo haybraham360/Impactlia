@@ -7,8 +7,10 @@ import type { RepositoryReference } from "./repository-url";
 // GitHub's responses leaves this file except the plain values below.
 //
 // Unauthenticated requests share GitHub's limit of 60 an hour per server
-// address. One analysis makes three, opening a repository makes one, and
-// each explanation that is not already cached makes one.
+// address. One repository analysis makes three, opening a repository makes
+// one, each explanation that is not already cached makes one, listing a
+// repository's pull requests makes one, and one pull request analysis makes
+// five or more (lib/github/pull-request.ts).
 
 export type PublicRepository = {
   // GitHub's own id, which survives a rename or a transfer.
@@ -19,13 +21,13 @@ export type PublicRepository = {
   defaultBranch: string;
 };
 
-const API = "https://api.github.com";
-const HEADERS = {
+export const API = "https://api.github.com";
+export const HEADERS = {
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
   "User-Agent": "Impactlia",
 };
-const REQUEST_TIMEOUT_MS = 15_000;
+export const REQUEST_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 const timeFormat = new Intl.DateTimeFormat("en-GB", {
@@ -34,7 +36,7 @@ const timeFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
-async function request(url: string, accept: string, timeout: number): Promise<Response> {
+export async function request(url: string, accept: string, timeout: number): Promise<Response> {
   try {
     return await fetch(url, {
       headers: { ...HEADERS, Accept: accept },
@@ -50,7 +52,7 @@ async function request(url: string, accept: string, timeout: number): Promise<Re
 }
 
 // The reasons GitHub refuses that the person can do something about.
-function refusal(response: Response, repository: RepositoryReference): IngestionError {
+export function refusal(response: Response, repository: RepositoryReference): IngestionError {
   const label = `${repository.owner}/${repository.name}`;
   if (
     (response.status === 403 || response.status === 429) &&
@@ -80,7 +82,7 @@ function refusal(response: Response, repository: RepositoryReference): Ingestion
   );
 }
 
-const repositoryApi = ({ owner, name }: RepositoryReference) =>
+export const repositoryApi = ({ owner, name }: RepositoryReference) =>
   `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 
 export async function findPublicRepository(
@@ -129,7 +131,7 @@ export async function findHeadCommit(
 // Downloads the archive of exactly one commit. Stops, and fails, as soon as
 // the download passes `maxBytes`.
 export async function downloadArchive(
-  repository: PublicRepository,
+  repository: RepositoryReference,
   commitSha: string,
   file: string,
   maxBytes: number,

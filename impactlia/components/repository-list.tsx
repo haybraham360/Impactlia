@@ -3,7 +3,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { retryRun } from "@/lib/ingestion/actions";
 import type { RepositoryEntry, RepositoryRun } from "@/lib/ingestion/runs";
 import { STALE_AFTER_MS, stageOf } from "@/lib/ingestion/stages";
-import { repositoryPath, runPath } from "@/lib/routes";
+import { pullRequestsPath, repositoryPath, runPath } from "@/lib/routes";
 
 const numberFormat = new Intl.NumberFormat("en");
 // Rendered on the server, which doesn't know the reader's time zone, so times
@@ -151,6 +151,11 @@ function Row({
             className="rounded-md border border-line bg-surface px-3.5 py-2 font-medium hover:bg-canvas"
           >
             Open map
+          </Link>
+        )}
+        {repositoryId && (
+          <Link href={pullRequestsPath(repositoryId)} className="text-accent hover:underline">
+            Pull requests
           </Link>
         )}
         {state !== "completed" && (

@@ -19,7 +19,12 @@ import { env } from "@/lib/env";
 // which cannot call a model except inside a traced, cached operation. The
 // provider's name appears nowhere else in the application.
 
-const openai = new OpenAI({ apiKey: env.openaiApiKey, maxRetries: 1, timeout: 60_000 });
+// Without a key there is no client, and the application still runs: nothing
+// but the explanations needs a model. A request for one then fails as a
+// recorded model failure, like any other.
+const openai = env.openaiApiKey
+  ? new OpenAI({ apiKey: env.openaiApiKey, maxRetries: 1, timeout: 60_000 })
+  : null;
 
 // LangSmith reads its endpoint from LANGSMITH_ENDPOINT when that is set, which
 // is how a workspace outside the default region is reached.
@@ -49,6 +54,7 @@ const span: Span = async (name, type, step) => {
 };
 
 async function complete(prompt: Prompt): Promise<{ text: string; usage: TokenUsage }> {
+  if (!openai) throw new Error("OPENAI_API_KEY is not set, so no model was called.");
   const completion = await openai.chat.completions.create({
     model: MODEL,
     temperature: 0,

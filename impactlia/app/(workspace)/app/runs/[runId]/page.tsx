@@ -1,7 +1,12 @@
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import Link from "next/link";
 import { RunProgress } from "@/components/run-progress";
+import { SubmitButton } from "@/components/submit-button";
+import { retryRun } from "@/lib/ingestion/actions";
 import { getRun } from "@/lib/ingestion/runs";
+import { STAGES, runTopic } from "@/lib/ingestion/stages";
+import { repositoryPath } from "@/lib/routes";
 import { getWorkspace } from "@/lib/workspace";
 
 const dateTimeFormat = new Intl.DateTimeFormat("en-GB", {
@@ -13,6 +18,15 @@ const dateTimeFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
+function Retry({ runId, children }: { runId: string; children: string }) {
+  return (
+    <form action={retryRun}>
+      <input type="hidden" name="runId" value={runId} />
+      <SubmitButton pendingLabel="Starting a new run…">{children}</SubmitButton>
+    </form>
+  );
+}
+
 async function Run({ params }: { params: Promise<{ runId: string }> }) {
   await getWorkspace();
   const { runId } = await params;
@@ -20,6 +34,8 @@ async function Run({ params }: { params: Promise<{ runId: string }> }) {
   // exist: the database returns neither.
   const run = await getRun(runId);
   if (!run) notFound();
+  // Whether an earlier run left a stored analysis that can still be opened.
+  const hasGraph = run.repository?.hasGraph ?? false;
 
   return (
     <>
@@ -55,8 +71,28 @@ async function Run({ params }: { params: Promise<{ runId: string }> }) {
           failureReason: run.failureReason,
           progressedAt: run.progressedAt,
         }}
-        repositoryId={run.repositoryId}
-        hasGraph={run.repository?.hasGraph ?? false}
+        stages={STAGES}
+        topic={runTopic(run.id)}
+        completed={
+          run.repositoryId
+            ? { href: repositoryPath(run.repositoryId), label: "Open the dependency map" }
+            : null
+        }
+        failedNote={
+          hasGraph
+            ? "Nothing was saved from this run. The analysis stored by an earlier run is unchanged."
+            : "Nothing was saved from this run."
+        }
+        retry={<Retry runId={run.id}>Retry</Retry>}
+        retryStale={<Retry runId={run.id}>Close this run and retry</Retry>}
+        links={
+          hasGraph &&
+          run.repositoryId && (
+            <Link href={repositoryPath(run.repositoryId)} className="text-accent hover:underline">
+              Open the earlier analysis
+            </Link>
+          )
+        }
       />
     </>
   );

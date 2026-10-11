@@ -1,13 +1,21 @@
-import type {
-  AnalysisRun,
-  AnalysisStatus,
-  RiskLevel,
-} from "@/lib/analysis-runs";
+import Link from "next/link";
+import type { RiskLevel } from "@/lib/impact/report";
+import type { AnalysisRun, AnalysisStatus } from "@/lib/impact/runs";
+import { STALE_AFTER_MS, analysisStageOf } from "@/lib/impact/stages";
+import { PULL_REQUESTS_PATH, analysisPath } from "@/lib/routes";
+
+// What a row is shown as. Stale is not a stored status: it is an unfinished
+// run that has recorded no progress for a while, and it gets a state of its
+// own so it is never read as a run that is moving.
+export type RunState = AnalysisStatus | "stale";
+
+export const runStateOf = (run: { status: AnalysisStatus; stale: boolean }): RunState =>
+  run.stale ? "stale" : run.status;
 
 // Each state has its own mark shape as well as its own colour, so it still
 // reads without colour.
 const statuses: Record<
-  AnalysisStatus,
+  RunState,
   { label: string; mark: string; tone: string; pill: string; noResult: string }
 > = {
   pending: {
@@ -31,6 +39,13 @@ const statuses: Record<
     pill: "border-positive/30 bg-positive/10",
     noResult: "",
   },
+  stale: {
+    label: "Stale",
+    mark: "border-[1.5px] border-current",
+    tone: "text-caution",
+    pill: "border-caution/40 bg-caution/10",
+    noResult: "No result yet",
+  },
   failed: {
     label: "Failed",
     mark: "rotate-45 bg-current",
@@ -40,12 +55,7 @@ const statuses: Record<
   },
 };
 
-const statusOrder: AnalysisStatus[] = [
-  "completed",
-  "running",
-  "pending",
-  "failed",
-];
+const statusOrder: RunState[] = ["completed", "running", "pending", "stale", "failed"];
 
 // The level is the number of filled bars as well as the colour.
 const risks: Record<RiskLevel, { label: string; bars: number; tone: string }> =
@@ -69,7 +79,7 @@ const timeFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
-function StatusMark({ status }: { status: AnalysisStatus }) {
+function StatusMark({ status }: { status: RunState }) {
   return (
     <span
       aria-hidden="true"
@@ -89,7 +99,19 @@ function NotAvailable() {
 
 // Changed is solid and affected is outlined, everywhere: a file the pull
 // request touched is a fact, a file it could reach is a possibility.
-function Impact({ changed, affected }: { changed: number; affected: number }) {
+export function StatePill({ state }: { state: RunState }) {
+  const status = statuses[state];
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium ${status.tone} ${status.pill}`}
+    >
+      <StatusMark status={state} />
+      {status.label}
+    </span>
+  );
+}
+
+export function Impact({ changed, affected }: { changed: number; affected: number }) {
   return (
     <span className="inline-flex items-center gap-2 whitespace-nowrap">
       <span className="min-w-7 rounded bg-ink px-1.5 py-0.5 text-center font-mono text-[0.8125rem] text-canvas tabular-nums">
@@ -114,7 +136,7 @@ function Impact({ changed, affected }: { changed: number; affected: number }) {
   );
 }
 
-function Risk({ level }: { level: RiskLevel }) {
+export function Risk({ level }: { level: RiskLevel }) {
   const risk = risks[level];
   return (
     <span
@@ -135,23 +157,27 @@ function Risk({ level }: { level: RiskLevel }) {
   );
 }
 
+// A completed run with no level is not a missing value: the analysis ran and
+// found nothing it could measure.
+export function InsufficientEvidence() {
+  return <span className="whitespace-nowrap text-muted">Insufficient evidence</span>;
+}
+
 function RunRow({ run }: { run: AnalysisRun }) {
-  const status = statuses[run.status];
+  const state = runStateOf(run);
+  const status = statuses[state];
   const requested = new Date(run.createdAt);
 
   return (
     <tr className="border-t border-line align-top">
       <td className="py-4 pr-6 pl-5 whitespace-nowrap">
-        <span
-          className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium ${status.tone} ${status.pill}`}
-        >
-          <StatusMark status={run.status} />
-          {status.label}
-        </span>
+        <StatePill state={state} />
       </td>
       <td className="max-w-md min-w-72 py-4 pr-6">
         <p className="text-[0.9375rem] leading-snug font-medium">
-          {run.pullRequest.title}
+          <Link href={analysisPath(run.id)} className="hover:underline">
+            {run.pullRequest.title}
+          </Link>
         </p>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted">
           <span className="font-mono text-[0.8125rem]">
@@ -159,15 +185,22 @@ function RunRow({ run }: { run: AnalysisRun }) {
             <span className="text-ink">#{run.pullRequest.number}</span>
           </span>
           <span>by {run.pullRequest.authorLogin}</span>
-          {run.repository.isSeed && (
-            <span className="rounded border border-dashed border-muted px-1.5 text-xs">
-              Sample data
-            </span>
-          )}
+          <span>
+            at <span className="font-mono text-[0.8125rem]">{run.headSha.slice(0, 7)}</span>
+          </span>
         </p>
+        {state === "running" && (
+          <p className="mt-1 text-muted">{analysisStageOf(run.stage).label}</p>
+        )}
+        {state === "stale" && (
+          <p className="mt-1 text-muted">
+            No progress recorded for over {STALE_AFTER_MS / 60_000} minutes. Last stage started:{" "}
+            {analysisStageOf(run.stage).label}.
+          </p>
+        )}
         {run.failureReason && (
           <p className="mt-2.5 border-l-2 border-critical pl-3 text-critical">
-            {run.failureReason}
+            Failed in “{analysisStageOf(run.stage).label}”. {run.failureReason}
           </p>
         )}
       </td>
@@ -184,7 +217,13 @@ function RunRow({ run }: { run: AnalysisRun }) {
         )}
       </td>
       <td className="py-4 pr-6 whitespace-nowrap">
-        {run.riskLevel ? <Risk level={run.riskLevel} /> : <NotAvailable />}
+        {run.riskLevel ? (
+          <Risk level={run.riskLevel} />
+        ) : run.status === "completed" ? (
+          <InsufficientEvidence />
+        ) : (
+          <NotAvailable />
+        )}
       </td>
       <td className="py-4 pr-5 whitespace-nowrap">
         <time dateTime={run.createdAt}>
@@ -198,21 +237,32 @@ function RunRow({ run }: { run: AnalysisRun }) {
   );
 }
 
-// What will happen here once analysis exists. A real sequence, so numbered.
+// What an analysis consists of. A real sequence, so numbered.
 const steps = [
   {
-    title: "Connect a repository",
-    detail: "Impactlia reads its structure and dependencies.",
+    title: "Add a repository",
+    detail: "A public GitHub repository, in the section above.",
   },
   {
     title: "Select a pull request",
-    detail: "The changed files are matched against that structure.",
+    detail: "Its changed files are matched against its head commit’s imports.",
   },
   {
     title: "Read the impact analysis",
     detail: "What the change could affect, and what to review or test.",
   },
 ];
+
+function AnalyzeLink() {
+  return (
+    <Link
+      href={PULL_REQUESTS_PATH}
+      className="inline-block rounded-md bg-accent px-3.5 py-2 text-sm font-medium text-accent-ink"
+    >
+      Analyze a pull request
+    </Link>
+  );
+}
 
 function NoRuns() {
   return (
@@ -222,9 +272,11 @@ function NoRuns() {
           No pull request has been analyzed yet
         </p>
         <p className="mt-1 max-w-prose text-sm text-muted">
-          Each analysis will be listed here with its state, the files the pull
+          Each analysis is listed here with its state, the files the pull
           request changed, the files it could affect and its risk level.
-          Analyzing a pull request is not available yet.
+        </p>
+        <p className="mt-4">
+          <AnalyzeLink />
         </p>
       </div>
       <ol className="grid gap-6 px-6 py-6 text-sm sm:grid-cols-3">
@@ -249,25 +301,19 @@ export function AnalysisRunList({ runs }: { runs: AnalysisRun[] }) {
     return <NoRuns />;
   }
 
-  const hasSeedRuns = runs.some((run) => run.repository.isSeed);
+  // Counted from the rows shown below, so the two cannot disagree.
   const counts = statusOrder
     .map((status) => ({
       status,
-      count: runs.filter((run) => run.status === status).length,
+      count: runs.filter((run) => runStateOf(run) === status).length,
     }))
     .filter((entry) => entry.count > 0);
 
   return (
     <>
-      {hasSeedRuns && (
-        <p className="mb-4 rounded-lg border border-dashed border-muted/60 px-4 py-3 text-sm text-muted">
-          <span className="font-medium text-ink">
-            This list contains sample data.
-          </span>{" "}
-          Rows marked “Sample data” are development seed rows. Impactlia did
-          not analyze a repository to produce them.
-        </p>
-      )}
+      <p className="mb-4">
+        <AnalyzeLink />
+      </p>
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
         <ul className="flex flex-wrap gap-x-6 gap-y-2 border-b border-line px-5 py-3 text-sm">
           {counts.map(({ status, count }) => (

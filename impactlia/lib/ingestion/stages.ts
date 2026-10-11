@@ -66,16 +66,6 @@ export function isStale(
   return run.status === "running" && now - Date.parse(run.progressedAt) > STALE_AFTER_MS;
 }
 
-// What a run's topic carries on Realtime Broadcast. The database trigger
-// builds exactly this and nothing else.
-export type RunProgress = {
-  id: string;
-  status: RunStatus;
-  stage: StageId;
-  lastCompletedStage: StageId | null;
-  failureReason: string | null;
-  progressedAt: string;
-};
-
 export const runTopic = (runId: string) => `repository-run:${runId}`;
+// The event both kinds of run broadcast their progress under.
 export const RUN_PROGRESS_EVENT = "progress";

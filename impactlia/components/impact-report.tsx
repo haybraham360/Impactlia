@@ -1,0 +1,387 @@
+import { Impact, InsufficientEvidence, Risk } from "@/components/analysis-run-list";
+import type { RiskLevel } from "@/lib/impact/report";
+import { IMPACT_DEPTH, LEVEL_RULE, SIGNALS } from "@/lib/impact/risk";
+import {
+  AFFECTED_FILE_LIMIT,
+  CHANGED_FILE_LIMIT,
+  type AnalysisRun,
+  type StoredAffectedFile,
+  type StoredChangedFile,
+  type StoredReport,
+} from "@/lib/impact/runs";
+import { SIGNAL_IDS, type SignalId } from "@/lib/impact/report";
+
+// The stored report of one completed analysis. Everything here was read from
+// the database: nothing is recalculated, so the page shows the same thing
+// every time it is opened.
+//
+// Three things are kept visibly apart throughout: what the pull request
+// changed (a fact from GitHub), what it could affect (files reached through
+// real imports), and what is suggested (recommendations, never results).
+
+const numberFormat = new Intl.NumberFormat("en");
+
+const changeLabels: Record<StoredChangedFile["changeType"], string> = {
+  added: "Added",
+  modified: "Modified",
+  removed: "Removed",
+  renamed: "Renamed",
+};
+
+const levelTone: Record<RiskLevel, string> = {
+  low: "text-positive",
+  medium: "text-caution",
+  high: "text-critical",
+};
+
+const isSignal = (id: string): id is SignalId => SIGNAL_IDS.some((known) => known === id);
+
+function Section({
+  title,
+  note,
+  children,
+}: {
+  title: string;
+  note?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-10">
+      <h2 className="text-lg font-semibold">{title}</h2>
+      {note && <p className="mt-1 max-w-prose text-sm text-muted">{note}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function Paths({ paths }: { paths: string[] }) {
+  if (paths.length === 0) return null;
+  return (
+    <ul className="mt-2 space-y-0.5 font-mono text-[0.8125rem] break-all text-muted">
+      {paths.map((path) => (
+        <li key={path}>{path}</li>
+      ))}
+    </ul>
+  );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-lg border border-dashed border-muted/60 px-5 py-4 text-sm text-muted">
+      {children}
+    </p>
+  );
+}
+
+function ChangedFiles({ files, total }: { files: StoredChangedFile[]; total: number }) {
+  if (files.length === 0) {
+    return <Empty>GitHub lists no changed files for this pull request.</Empty>;
+  }
+  return (
+    <>
+      <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-canvas/60 text-xs text-muted">
+            <tr>
+              <th scope="col" className="py-2.5 pr-6 pl-5 font-medium">File</th>
+              <th scope="col" className="py-2.5 pr-6 font-medium">Change</th>
+              <th scope="col" className="py-2.5 pr-6 font-medium">Lines</th>
+              <th scope="col" className="py-2.5 pr-5 font-medium">In the graph</th>
+            </tr>
+          </thead>
+          <tbody>
+            {files.map((file) => (
+              <tr key={file.path} className="border-t border-line align-top">
+                <td className="py-3 pr-6 pl-5 font-mono text-[0.8125rem] break-all">
+                  {file.path}
+                  {file.previousPath && (
+                    <span className="block text-muted">was {file.previousPath}</span>
+                  )}
+                </td>
+                <td className="py-3 pr-6 whitespace-nowrap">{changeLabels[file.changeType]}</td>
+                <td className="py-3 pr-6 font-mono text-[0.8125rem] whitespace-nowrap tabular-nums">
+                  +{numberFormat.format(file.additions)} −{numberFormat.format(file.deletions)}
+                  {!file.patchAvailable && file.additions + file.deletions > 0 && (
+                    <span className="block font-sans text-xs text-muted">no patch from GitHub</span>
+                  )}
+                </td>
+                <td className="max-w-sm py-3 pr-5">
+                  {file.analysed ? (
+                    <span>Yes: what imports it was traced</span>
+                  ) : (
+                    <span className="font-medium text-caution">Not analysed</span>
+                  )}
+                  {file.stateReason && (
+                    <span className="mt-0.5 block text-muted">{file.stateReason}</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {total > files.length && (
+        <p className="mt-2 text-sm text-muted">
+          Showing the first {numberFormat.format(files.length)} of{" "}
+          {numberFormat.format(total)} changed files, in path order. The page reads at most{" "}
+          {numberFormat.format(CHANGED_FILE_LIMIT)}; all of them are stored and were analysed.
+        </p>
+      )}
+    </>
+  );
+}
+
+// The chain as stored: it starts at a changed file, and each file after it
+// imports the one before.
+function Chain({ file }: { file: StoredAffectedFile }) {
+  const [origin, ...rest] = file.dependencyPath;
+  return (
+    <div className="border-t border-line bg-canvas/40 px-5 py-3 text-sm">
+      <p className="text-muted">Why it is here: a chain of imports that leads to a changed file.</p>
+      <ol className="mt-2 space-y-1 font-mono text-[0.8125rem] break-all">
+        <li>
+          <span className="mr-2 rounded bg-ink px-1.5 py-0.5 font-sans text-xs text-canvas">
+            changed
+          </span>
+          {origin}
+        </li>
+        {rest.map((step) => (
+          <li key={step} className="pl-4">
+            <span className="mr-2 font-sans text-muted">is imported by</span>
+            {step}
+          </li>
+        ))}
+      </ol>
+      {file.routeCount > 1 && (
+        <p className="mt-2 text-muted">
+          This is one shortest chain. {file.routeCount} files one step closer to the change are
+          imported by this file, so there are other chains of the same length.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AffectedFiles({ files, total }: { files: StoredAffectedFile[]; total: number }) {
+  if (total === 0) {
+    return (
+      <Empty>
+        No file in the graph imports a changed file, directly or through other files. That is
+        a statement about the imports that could be resolved, not a guarantee that nothing
+        else is affected.
+      </Empty>
+    );
+  }
+  const depths = [...new Set(files.map((file) => file.impactDepth))];
+  return (
+    <>
+      {depths.map((depth) => {
+        const atDepth = files.filter((file) => file.impactDepth === depth);
+        return (
+          <div key={depth} className="mb-4">
+            <h3 className="mb-2 text-sm font-medium">
+              {depth === 1
+                ? "Imports a changed file directly"
+                : `${depth} imports away from a changed file`}
+              <span className="ml-2 font-normal text-muted tabular-nums">{atDepth.length}</span>
+            </h3>
+            <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+              {atDepth.map((file) => (
+                <li key={file.path} className="border-t border-line first:border-t-0">
+                  <details>
+                    <summary className="cursor-pointer px-5 py-2.5 font-mono text-[0.8125rem] break-all hover:bg-canvas">
+                      {file.path}
+                    </summary>
+                    <Chain file={file} />
+                  </details>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+      {total > files.length && (
+        <p className="mt-2 text-sm text-muted">
+          Showing the nearest {numberFormat.format(files.length)} of {numberFormat.format(total)}{" "}
+          potentially affected files. The page reads at most{" "}
+          {numberFormat.format(AFFECTED_FILE_LIMIT)}; all of them are stored and counted.
+        </p>
+      )}
+    </>
+  );
+}
+
+export function ImpactReport({ run, report }: { run: AnalysisRun; report: StoredReport }) {
+  const changedTotal = run.changedFileCount ?? report.changed.length;
+  const affectedTotal = run.affectedFileCount ?? report.affected.length;
+  const unanalysed = report.changed.filter((file) => !file.analysed);
+
+  return (
+    <>
+      <section className="mt-6 rounded-lg border border-line bg-surface">
+        <dl className="grid gap-x-10 gap-y-5 px-5 py-5 text-sm sm:grid-cols-[auto_1fr]">
+          <div>
+            <dt className="mb-1.5 text-xs text-muted">Risk label</dt>
+            <dd className="text-base">
+              {run.riskLevel ? <Risk level={run.riskLevel} /> : <InsufficientEvidence />}
+            </dd>
+          </div>
+          <div>
+            <dt className="mb-1.5 text-xs text-muted">Impact</dt>
+            <dd>
+              <Impact changed={changedTotal} affected={affectedTotal} />
+            </dd>
+          </div>
+        </dl>
+        <p className="border-t border-line px-5 py-3 text-sm text-muted">
+          {run.riskLevel
+            ? "The label is a way to decide what to look at first, worked out from the signals below by fixed rules. It is not a measured probability that anything breaks."
+            : "No changed file could be matched to the graph, so there was nothing to measure and no label is given. That is not the same as low risk."}{" "}
+          A file that could be affected is one that imports changed code. It is not known to be
+          broken, and Impactlia has run no tests.
+        </p>
+      </section>
+
+      <Section
+        title="Risk signals"
+        note="Each signal is a rule that was triggered, with the measurements that triggered it."
+      >
+        {report.signals.length === 0 ? (
+          <Empty>
+            No rule was triggered: nothing in the graph imports the changed files, and no part
+            of the change went unanalysed.
+          </Empty>
+        ) : (
+          <ul className="space-y-3">
+            {report.signals.map((signal) => (
+              <li key={signal.signal} className="rounded-lg border border-line bg-surface px-5 py-4 text-sm">
+                <p className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <span className="text-[0.9375rem] font-medium">
+                    {isSignal(signal.signal) ? SIGNALS[signal.signal].label : signal.signal}
+                  </span>
+                  <span className={`font-medium capitalize ${levelTone[signal.level]}`}>
+                    {signal.level}
+                  </span>
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {signal.detail.facts.map((fact) => (
+                    <li key={fact} className="break-words">{fact}</li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-muted">
+                  <span className="font-medium">Rule.</span> {signal.detail.rule}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+        <details className="mt-3 rounded-lg border border-line px-5 py-3 text-sm">
+          <summary className="cursor-pointer font-medium">How the label is worked out</summary>
+          <p className="mt-3 max-w-prose">{LEVEL_RULE}</p>
+          <dl className="mt-3 space-y-3">
+            {SIGNAL_IDS.map((id) => (
+              <div key={id}>
+                <dt className="font-medium">{SIGNALS[id].label}</dt>
+                <dd className="text-muted">{SIGNALS[id].rule}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 max-w-prose text-muted">
+            The analysis is per file: any change to a file counts for the whole file. Only
+            static imports the parser resolved are followed, up to {IMPACT_DEPTH} imports out.
+            Relationships that exist only at runtime are not seen.
+          </p>
+        </details>
+      </Section>
+
+      <Section
+        title={`Changed files (${numberFormat.format(changedTotal)})`}
+        note="The files in the pull request’s diff, as GitHub lists them."
+      >
+        <ChangedFiles files={report.changed} total={changedTotal} />
+      </Section>
+
+      <Section
+        title={`Potentially affected files (${numberFormat.format(affectedTotal)})`}
+        note="Files that import a changed file, directly or through other files. Each is counted once, at its shortest distance. Open one to see the chain of imports that puts it here."
+      >
+        <AffectedFiles files={report.affected} total={affectedTotal} />
+      </Section>
+
+      <Section
+        title={`Not analysed (${numberFormat.format(unanalysed.length)})`}
+        note="Changed files Impactlia could not place in the graph. Nothing is claimed about what depends on them."
+      >
+        {unanalysed.length === 0 ? (
+          <Empty>Every changed file shown above is in the graph.</Empty>
+        ) : (
+          <ul className="overflow-hidden rounded-lg border border-line bg-surface text-sm">
+            {unanalysed.map((file) => (
+              <li key={file.path} className="border-t border-line px-5 py-3 first:border-t-0">
+                <p className="font-mono text-[0.8125rem] break-all">{file.path}</p>
+                <p className="mt-0.5 text-muted">{file.stateReason}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section
+        title="Coverage and limitations"
+        note="What this analysis could not establish. A dependency that runs through one of these is missing from the report."
+      >
+        {report.limitations.length === 0 ? (
+          <Empty>
+            None were recorded for this run. The graph still covers only static imports the
+            parser could resolve.
+          </Empty>
+        ) : (
+          <ul className="space-y-3">
+            {report.limitations.map((limitation) => (
+              <li
+                key={limitation.id}
+                className="border-l-2 border-caution pl-4 text-sm"
+              >
+                <p className="max-w-prose">{limitation.detail}</p>
+                <Paths paths={limitation.files} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section
+        title="Suggested checks"
+        note="Recommendations worked out from the report above. Impactlia has not run any of them and has collected no test results."
+      >
+        {report.recommendations.length === 0 ? (
+          <Empty>Nothing in this report leads to a specific check.</Empty>
+        ) : (
+          <ol className="space-y-3">
+            {report.recommendations.map((recommendation, index) => (
+              <li
+                key={recommendation.body}
+                className="flex gap-3 rounded-lg border border-line bg-surface px-5 py-4 text-sm"
+              >
+                <span className="grid size-6 shrink-0 place-items-center rounded-full border border-line font-mono text-xs text-muted">
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[0.9375rem] font-medium">{recommendation.body}</p>
+                  {recommendation.reason && (
+                    <p className="mt-1 break-words text-muted">
+                      <span className="font-medium">Why.</span> {recommendation.reason}
+                    </p>
+                  )}
+                  {recommendation.origin === "ai" && (
+                    <p className="mt-1 text-xs text-muted">Written by AI, not computed.</p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Section>
+    </>
+  );
+}

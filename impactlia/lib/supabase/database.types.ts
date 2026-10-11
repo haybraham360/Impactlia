@@ -161,43 +161,61 @@ export type Database = {
       analyses: {
         Row: {
           affected_file_count: number | null
+          base_sha: string | null
           changed_file_count: number | null
           completed_at: string | null
           created_at: string
           failure_reason: string | null
+          graph_sha: string | null
           head_sha: string
           id: string
+          last_completed_stage: Database["public"]["Enums"]["analysis_stage"] | null
+          limitations: Json
           organization_id: string
+          progressed_at: string
           pull_request_id: string
           risk_level: Database["public"]["Enums"]["risk_level"] | null
+          stage: Database["public"]["Enums"]["analysis_stage"]
           started_at: string | null
           status: Database["public"]["Enums"]["analysis_status"]
         }
         Insert: {
           affected_file_count?: number | null
+          base_sha?: string | null
           changed_file_count?: number | null
           completed_at?: string | null
           created_at?: string
           failure_reason?: string | null
+          graph_sha?: string | null
           head_sha: string
           id?: string
+          last_completed_stage?: Database["public"]["Enums"]["analysis_stage"] | null
+          limitations?: Json
           organization_id: string
+          progressed_at?: string
           pull_request_id: string
           risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          stage?: Database["public"]["Enums"]["analysis_stage"]
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
         }
         Update: {
           affected_file_count?: number | null
+          base_sha?: string | null
           changed_file_count?: number | null
           completed_at?: string | null
           created_at?: string
           failure_reason?: string | null
+          graph_sha?: string | null
           head_sha?: string
           id?: string
+          last_completed_stage?: Database["public"]["Enums"]["analysis_stage"] | null
+          limitations?: Json
           organization_id?: string
+          progressed_at?: string
           pull_request_id?: string
           risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          stage?: Database["public"]["Enums"]["analysis_stage"]
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
         }
@@ -219,6 +237,7 @@ export type Database = {
           organization_id: string
           source_file_id: string
           target_file_id: string
+          type_only: boolean
         }
         Insert: {
           analysis_id: string
@@ -227,6 +246,7 @@ export type Database = {
           organization_id: string
           source_file_id: string
           target_file_id: string
+          type_only?: boolean
         }
         Update: {
           analysis_id?: string
@@ -235,6 +255,7 @@ export type Database = {
           organization_id?: string
           source_file_id?: string
           target_file_id?: string
+          type_only?: boolean
         }
         Relationships: [
           {
@@ -330,35 +351,53 @@ export type Database = {
         Row: {
           additions: number | null
           analysis_id: string
+          analysis_state: Database["public"]["Enums"]["analysis_file_state"] | null
           change_type: Database["public"]["Enums"]["file_change_type"] | null
           deletions: number | null
+          dependency_path: string[] | null
           id: string
           impact_depth: number | null
           kind: Database["public"]["Enums"]["analysis_file_kind"]
           organization_id: string
+          patch_available: boolean | null
           path: string
+          previous_path: string | null
+          route_count: number | null
+          state_reason: string | null
         }
         Insert: {
           additions?: number | null
           analysis_id: string
+          analysis_state?: Database["public"]["Enums"]["analysis_file_state"] | null
           change_type?: Database["public"]["Enums"]["file_change_type"] | null
           deletions?: number | null
+          dependency_path?: string[] | null
           id?: string
           impact_depth?: number | null
           kind: Database["public"]["Enums"]["analysis_file_kind"]
           organization_id: string
+          patch_available?: boolean | null
           path: string
+          previous_path?: string | null
+          route_count?: number | null
+          state_reason?: string | null
         }
         Update: {
           additions?: number | null
           analysis_id?: string
+          analysis_state?: Database["public"]["Enums"]["analysis_file_state"] | null
           change_type?: Database["public"]["Enums"]["file_change_type"] | null
           deletions?: number | null
+          dependency_path?: string[] | null
           id?: string
           impact_depth?: number | null
           kind?: Database["public"]["Enums"]["analysis_file_kind"]
           organization_id?: string
+          patch_available?: boolean | null
           path?: string
+          previous_path?: string | null
+          route_count?: number | null
+          state_reason?: string | null
         }
         Relationships: [
           {
@@ -378,6 +417,7 @@ export type Database = {
           organization_id: string
           origin: Database["public"]["Enums"]["finding_origin"]
           position: number
+          reason: string | null
         }
         Insert: {
           analysis_id: string
@@ -386,6 +426,7 @@ export type Database = {
           organization_id: string
           origin: Database["public"]["Enums"]["finding_origin"]
           position: number
+          reason?: string | null
         }
         Update: {
           analysis_id?: string
@@ -394,6 +435,7 @@ export type Database = {
           organization_id?: string
           origin?: Database["public"]["Enums"]["finding_origin"]
           position?: number
+          reason?: string | null
         }
         Relationships: [
           {
@@ -659,6 +701,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      complete_analysis: {
+        Args: { report: Json; run_id: string }
+        Returns: undefined
+      }
       complete_repository_run: {
         Args: { parser_output: Json; run_id: string; source_sha?: string }
         Returns: undefined
@@ -670,6 +716,16 @@ export type Database = {
       ai_run_outcome: "succeeded" | "input-failed" | "model-failed" | "rejected"
       ai_task: "file-explanation" | "folder-explanation" | "role-classification"
       analysis_file_kind: "changed" | "affected"
+      analysis_file_state: "analysed" | "unanalysed"
+      analysis_stage:
+        | "validating"
+        | "fetching"
+        | "preparing"
+        | "mapping"
+        | "calculating"
+        | "scoring"
+        | "saving"
+        | "complete"
       analysis_status: "pending" | "running" | "completed" | "failed"
       file_change_type: "added" | "modified" | "removed" | "renamed"
       finding_origin: "deterministic" | "ai"

@@ -33,7 +33,9 @@ export const env = {
   clerkSecretKey: required("CLERK_SECRET_KEY"),
   supabaseUrl: requiredUrl("NEXT_PUBLIC_SUPABASE_URL"),
   supabasePublishableKey: required("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
-  openaiApiKey: required("OPENAI_API_KEY"),
+  // Without this the AI explanations are unavailable and say so. Repository
+  // and pull request analysis are deterministic and do not use it.
+  openaiApiKey: optional("OPENAI_API_KEY"),
   // Without this, AI runs are still recorded in the database but are not sent
   // to LangSmith. The AI runs page says so.
   langsmithApiKey: optional("LANGSMITH_API_KEY"),

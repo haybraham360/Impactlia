@@ -4,7 +4,7 @@ import { AnalysisRunList } from "@/components/analysis-run-list";
 import { RepositoryForm } from "@/components/repository-form";
 import { RepositoryList } from "@/components/repository-list";
 import { listFailedSubmissions, listRepositories } from "@/lib/ingestion/runs";
-import { listAnalysisRuns } from "@/lib/analysis-runs";
+import { listAnalysisRuns } from "@/lib/impact/runs";
 import { TEAM_PATH } from "@/lib/routes";
 import { getWorkspace } from "@/lib/workspace";
 

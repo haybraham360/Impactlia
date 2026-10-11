@@ -3,34 +3,43 @@
 import { useSession } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { SubmitButton } from "@/components/submit-button";
-import { retryRun } from "@/lib/ingestion/actions";
-import {
-  RUN_PROGRESS_EVENT,
-  STAGES,
-  STALE_AFTER_MS,
-  isStale,
-  runTopic,
-  stageOf,
-  type RunProgress as Progress,
-  type StageId,
-} from "@/lib/ingestion/stages";
-import { WORKSPACE_PATH, repositoryPath } from "@/lib/routes";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { RUN_PROGRESS_EVENT, STALE_AFTER_MS } from "@/lib/ingestion/stages";
+import { WORKSPACE_PATH } from "@/lib/routes";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
+
+// Live progress of anything that runs in stages and reports them the same
+// way: a repository run and a pull request analysis. Which stages, which
+// topic and what can be done next are given by the page; this only shows
+// what was persisted and what the topic then says.
+
+export type ProgressStage = { id: string; label: string; message: string };
+
+// What the server read, and what a topic carries: the database trigger builds
+// exactly this and nothing else.
+export type Progress = {
+  id: string;
+  status: "running" | "completed" | "failed";
+  stage: string;
+  lastCompletedStage: string | null;
+  failureReason: string | null;
+  progressedAt: string;
+};
 
 type Connection = "connecting" | "live" | "unavailable";
 type StageState = "done" | "current" | "failed" | "waiting";
 
-const STAGE_IDS: readonly StageId[] = STAGES.map((stage) => stage.id);
-
 // The message comes from a database trigger, but it is still checked before
 // it is believed.
-function readProgress(payload: unknown, runId: string): Progress | null {
+function readProgress(
+  payload: unknown,
+  runId: string,
+  stageIds: readonly string[],
+): Progress | null {
   if (typeof payload !== "object" || payload === null) return null;
   const value = payload as Record<string, unknown>;
-  const isStage = (stage: unknown): stage is StageId =>
-    typeof stage === "string" && STAGE_IDS.some((id) => id === stage);
+  const isStage = (stage: unknown): stage is string =>
+    typeof stage === "string" && stageIds.includes(stage);
   if (
     value.id !== runId ||
     (value.status !== "running" && value.status !== "completed" && value.status !== "failed") ||
@@ -51,10 +60,14 @@ function readProgress(payload: unknown, runId: string): Progress | null {
   };
 }
 
-function stateOf(stage: StageId, progress: Progress): StageState {
+function stateOf(
+  stage: string,
+  progress: Progress,
+  stageIds: readonly string[],
+): StageState {
   if (progress.status === "completed") return "done";
-  const position = STAGE_IDS.indexOf(stage);
-  const current = STAGE_IDS.indexOf(progress.stage);
+  const position = stageIds.indexOf(stage);
+  const current = stageIds.indexOf(progress.stage);
   if (position < current) return "done";
   if (position > current) return "waiting";
   return progress.status === "failed" ? "failed" : "current";
@@ -74,14 +87,29 @@ const marks: Record<StageState, { mark: string; tone: string; label: string }> =
 
 export function RunProgress({
   initial,
-  repositoryId,
-  hasGraph,
+  stages,
+  topic,
+  completed,
+  failedNote,
+  retry,
+  retryStale,
+  links,
 }: {
   // The run as the server read it when the page was rendered.
   initial: Progress;
-  repositoryId: string | null;
-  // Whether an earlier run left a stored analysis that can still be opened.
-  hasGraph: boolean;
+  stages: readonly ProgressStage[];
+  // The run's private Realtime Broadcast topic.
+  topic: string;
+  // Where a completed run's result is opened. null when the result is this
+  // same page, which is then read again from the server.
+  completed: { href: string; label: string } | null;
+  // What a failed run left behind.
+  failedNote: string;
+  // The forms that start a new run, after a failure and from a stale run.
+  retry: ReactNode;
+  retryStale: ReactNode;
+  // Anything else worth offering beside them.
+  links?: ReactNode;
 }) {
   const router = useRouter();
   const { session } = useSession();
@@ -101,7 +129,14 @@ export function RunProgress({
   const progress =
     live && Date.parse(live.progressedAt) >= Date.parse(initial.progressedAt) ? live : initial;
   const running = progress.status === "running";
-  const stale = isStale(progress, now);
+  const stale = running && now - Date.parse(progress.progressedAt) > STALE_AFTER_MS;
+  const stageIds = stages.map((stage) => stage.id);
+  // Read through a ref so the subscription below is not restarted by a new
+  // array or object with the same contents.
+  const latest = useRef({ stageIds, completedHref: completed?.href ?? null });
+  useEffect(() => {
+    latest.current = { stageIds, completedHref: completed?.href ?? null };
+  });
 
   const runId = initial.id;
   const startedFinished = initial.status !== "running";
@@ -115,13 +150,15 @@ export function RunProgress({
     );
     let closed = false;
     const channel = client
-      .channel(runTopic(runId), { config: { private: true } })
+      .channel(topic, { config: { private: true } })
       .on("broadcast", { event: RUN_PROGRESS_EVENT }, ({ payload }) => {
-        const next = readProgress(payload, runId);
+        const next = readProgress(payload, runId, latest.current.stageIds);
         if (!next) return;
         setLive(next);
-        if (next.status === "completed" && repositoryId) {
-          router.push(repositoryPath(repositoryId));
+        if (next.status === "completed") {
+          const { completedHref } = latest.current;
+          if (completedHref) router.push(completedHref);
+          else router.refresh();
         }
       });
 
@@ -152,7 +189,7 @@ export function RunProgress({
       void client.removeChannel(channel);
       client.realtime.disconnect();
     };
-  }, [runId, repositoryId, startedFinished, signedIn, router]);
+  }, [runId, topic, startedFinished, signedIn, router]);
 
   // Staleness is about time passing with no message, so nothing arrives to
   // announce it. One timer, set for the moment the current stage would become
@@ -164,7 +201,11 @@ export function RunProgress({
     return () => window.clearTimeout(timer);
   }, [running, progress.progressedAt]);
 
-  const stage = stageOf(progress.stage);
+  const stage = stages.find((entry) => entry.id === progress.stage) ?? {
+    id: progress.stage,
+    label: progress.stage,
+    message: "",
+  };
 
   return (
     <div className="max-w-2xl">
@@ -188,11 +229,7 @@ export function RunProgress({
           <>
             <p className="font-medium text-critical">Failed in “{stage.label}”</p>
             <p className="mt-1 text-sm">{progress.failureReason}</p>
-            <p className="mt-1 text-sm text-muted">
-              {hasGraph
-                ? "Nothing was saved from this run. The analysis stored by an earlier run is unchanged."
-                : "Nothing was saved from this run."}
-            </p>
+            <p className="mt-1 text-sm text-muted">{failedNote}</p>
           </>
         )}
         {running && !stale && (
@@ -216,27 +253,17 @@ export function RunProgress({
         )}
 
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-          {progress.status === "completed" && repositoryId && (
+          {progress.status === "completed" && completed && (
             <Link
-              href={repositoryPath(repositoryId)}
+              href={completed.href}
               className="rounded-md bg-accent px-3.5 py-2 font-medium text-accent-ink"
             >
-              Open the dependency map
+              {completed.label}
             </Link>
           )}
-          {(progress.status === "failed" || stale) && (
-            <form action={retryRun}>
-              <input type="hidden" name="runId" value={runId} />
-              <SubmitButton pendingLabel="Starting a new run…">
-                {stale ? "Close this run and retry" : "Retry"}
-              </SubmitButton>
-            </form>
-          )}
-          {progress.status === "failed" && hasGraph && repositoryId && (
-            <Link href={repositoryPath(repositoryId)} className="text-accent hover:underline">
-              Open the earlier analysis
-            </Link>
-          )}
+          {progress.status === "failed" && retry}
+          {stale && retryStale}
+          {progress.status === "failed" && links}
           {progress.status !== "completed" && (
             <Link href={WORKSPACE_PATH} className="text-muted hover:text-ink">
               Back to overview
@@ -270,8 +297,8 @@ export function RunProgress({
       )}
 
       <ol className="mt-6 space-y-3">
-        {STAGES.map((entry, index) => {
-          const state = stateOf(entry.id, progress);
+        {stages.map((entry, index) => {
+          const state = stateOf(entry.id, progress, stageIds);
           const mark = marks[state];
           return (
             <li

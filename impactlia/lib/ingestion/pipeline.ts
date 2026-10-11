@@ -1,15 +1,6 @@
 import "server-only";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import {
-  downloadArchive,
-  findHeadCommit,
-  type PublicRepository,
-} from "@/lib/github/public-repository";
-import { summariseCoverage } from "@/lib/graph/coverage";
-import { buildGraphModel } from "@/lib/graph/model";
-import { extractArchive, type ArchiveLimits } from "@/lib/ingestion/archive";
+import { findHeadCommit, type PublicRepository } from "@/lib/github/public-repository";
 import { IngestionError } from "@/lib/ingestion/errors";
 import {
   RunSuperseded,
@@ -17,23 +8,15 @@ import {
   completeRun,
   failRun,
 } from "@/lib/ingestion/runs";
+import {
+  checkedGraph,
+  createWorkDirectory,
+  downloadCommit,
+  parseSource,
+  unpackCommit,
+} from "@/lib/ingestion/source";
 import { PROCESSING_LIMIT_MS, stageOf, type StageId } from "@/lib/ingestion/stages";
 import type { SupabaseClient } from "@/lib/supabase/server";
-import { frameworkAdapters } from "@/parser/adapters";
-import { coreExclusionRules } from "@/parser/exclusions";
-import { parseRepository } from "@/parser/parse-repository";
-import { readParserOutput } from "@/parser/validate";
-
-// What one analysis may use. A repository over any of these fails with a
-// message naming the limit; nothing is analysed in part.
-const MEGABYTE = 1024 * 1024;
-const ARCHIVE_BYTES = 100 * MEGABYTE;
-const LIMITS: ArchiveLimits = {
-  unpackedBytes: 1024 * MEGABYTE,
-  writtenBytes: 200 * MEGABYTE,
-  entries: 100_000,
-  sourceFiles: 5_000,
-};
 
 function reasonFor(error: unknown, stage: StageId, runId: string): string {
   if (error instanceof IngestionError) return error.message;
@@ -49,9 +32,6 @@ function reasonFor(error: unknown, stage: StageId, runId: string): string {
 // directory is removed whatever happens. If even the failure cannot be
 // written, the run stays 'running' with no further progress, which is exactly
 // what the dashboard shows as stale.
-//
-// Parsing is synchronous and holds this server process while it runs; the
-// source-file limit above is what keeps that bounded.
 export async function runPipeline(
   client: SupabaseClient,
   runId: string,
@@ -73,46 +53,21 @@ export async function runPipeline(
 
   let directory: string | null = null;
   try {
-    directory = fs.mkdtempSync(path.join(os.tmpdir(), "impactlia-run-"));
+    directory = createWorkDirectory();
     const requestedSha = await findHeadCommit(repository);
-    const archive = path.join(directory, "archive.tar.gz");
-    await downloadArchive(repository, requestedSha, archive, ARCHIVE_BYTES);
+    const archive = await downloadCommit(repository, requestedSha, directory);
 
     await enter("preparing");
-    const source = path.join(directory, "source");
-    const extracted = await extractArchive(
-      archive,
-      source,
-      coreExclusionRules,
-      LIMITS,
-    );
-    // The archive names the commit it was built from. That, not the commit
-    // that was asked for, is what gets recorded; if they differ the archive is
-    // not what this run is about.
-    if (extracted.commitSha !== null && extracted.commitSha !== requestedSha) {
-      throw new IngestionError(
-        "GitHub returned an archive of a different commit from the one requested. Try again.",
-      );
-    }
-    if (extracted.sourceFiles === 0) {
-      throw new IngestionError(
-        `${repository.owner}/${repository.name} has no TypeScript or JavaScript files outside excluded folders. Those are the only languages analysed so far.`,
-      );
-    }
+    const { source, commitSha } = await unpackCommit(archive, directory, requestedSha, repository);
 
     await enter("parsing");
-    const output = parseRepository(source, frameworkAdapters);
+    const output = parseSource(source);
 
     await enter("calculating");
-    // What is stored is what the explorer will read back, so it goes through
-    // the same contract check and the same model build the explorer uses. A
-    // graph that would not open is refused here rather than saved.
-    const stored = readParserOutput(JSON.parse(JSON.stringify(output)));
-    buildGraphModel(stored);
-    summariseCoverage(stored);
+    const stored = checkedGraph(output);
 
     await enter("saving");
-    await completeRun(client, runId, extracted.commitSha, stored);
+    await completeRun(client, runId, commitSha, stored);
   } catch (error) {
     if (error instanceof RunSuperseded) return;
     try {
