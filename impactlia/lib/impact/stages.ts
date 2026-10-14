@@ -38,6 +38,12 @@ export const ANALYSIS_STAGES = [
     message: "Applying the documented rules to what was found.",
   },
   {
+    id: "checking",
+    label: "Checking changed code",
+    message:
+      "Type-checking the changed files under the repository's own tsconfig. The compiler reads the code; nothing in it is run.",
+  },
+  {
     id: "saving",
     label: "Saving report",
     message: "Storing the report and the result of this run.",

@@ -7,7 +7,10 @@ import {
 } from "@/lib/github/pull-request";
 import type { RepositoryReference } from "@/lib/github/repository-url";
 import { calculateBlastRadius, mapChangedFiles, scoreImpact } from "@/lib/impact/analyze";
+import { collectCodeIssues, planCodeCheck } from "@/lib/impact/code-issues";
+import type { ImpactReport } from "@/lib/impact/report";
 import { advanceAnalysis, completeAnalysis, failAnalysis } from "@/lib/impact/runs";
+import { typeCheckFiles } from "@/lib/impact/type-check";
 import {
   PROCESSING_LIMIT_MS,
   analysisStageOf,
@@ -98,7 +101,20 @@ export async function runImpactPipeline(
     const radius = calculateBlastRadius(graph, mapping.starts);
 
     await enter("scoring");
-    const report = scoreImpact(graph, changes, mapping, radius, commitSha);
+    const analysis = scoreImpact(graph, changes, mapping, radius, commitSha);
+
+    // Only the head commit is checked, and only lines the pull request adds
+    // count, so an issue found is one the change introduces or touches.
+    await enter("checking");
+    const plan = planCodeCheck(graph, changes, mapping);
+    const outcomes = typeCheckFiles(source, plan.targets);
+    const code = collectCodeIssues(graph, changes, radius.index, plan, outcomes);
+    const report: ImpactReport = {
+      ...analysis,
+      limitations: [...analysis.limitations, ...code.limitations],
+      codeIssues: code.issues,
+      codeCheck: code.check,
+    };
 
     await enter("saving");
     await completeAnalysis(client, analysisId, report);

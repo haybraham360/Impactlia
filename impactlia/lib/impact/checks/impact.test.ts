@@ -34,6 +34,7 @@ const change = (file: string, changeType: ChangeType = "modified") => ({
   additions: 1,
   deletions: 1,
   patchAvailable: true,
+  addedLines: null,
 });
 
 const changes = (...files: ReturnType<typeof change>[]): PullRequestChanges => ({

@@ -163,6 +163,7 @@ export type Database = {
           affected_file_count: number | null
           base_sha: string | null
           changed_file_count: number | null
+          code_check: Json | null
           completed_at: string | null
           created_at: string
           failure_reason: string | null
@@ -183,6 +184,7 @@ export type Database = {
           affected_file_count?: number | null
           base_sha?: string | null
           changed_file_count?: number | null
+          code_check?: Json | null
           completed_at?: string | null
           created_at?: string
           failure_reason?: string | null
@@ -203,6 +205,7 @@ export type Database = {
           affected_file_count?: number | null
           base_sha?: string | null
           changed_file_count?: number | null
+          code_check?: Json | null
           completed_at?: string | null
           created_at?: string
           failure_reason?: string | null
@@ -226,6 +229,87 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "pull_requests"
             referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      analysis_code_issues: {
+        Row: {
+          analysis_id: string
+          category: Database["public"]["Enums"]["code_issue_category"]
+          conditions: string
+          end_column: number | null
+          end_line: number | null
+          file_id: string
+          id: string
+          message: string
+          organization_id: string
+          position: number
+          related_file_count: number
+          related_files: Json
+          rule_id: string | null
+          severity: Database["public"]["Enums"]["risk_level"]
+          source: Database["public"]["Enums"]["code_issue_source"]
+          start_column: number | null
+          start_line: number
+          status: Database["public"]["Enums"]["code_issue_status"]
+          title: string
+        }
+        Insert: {
+          analysis_id: string
+          category: Database["public"]["Enums"]["code_issue_category"]
+          conditions: string
+          end_column?: number | null
+          end_line?: number | null
+          file_id: string
+          id?: string
+          message: string
+          organization_id: string
+          position: number
+          related_file_count?: number
+          related_files?: Json
+          rule_id?: string | null
+          severity: Database["public"]["Enums"]["risk_level"]
+          source: Database["public"]["Enums"]["code_issue_source"]
+          start_column?: number | null
+          start_line: number
+          status: Database["public"]["Enums"]["code_issue_status"]
+          title: string
+        }
+        Update: {
+          analysis_id?: string
+          category?: Database["public"]["Enums"]["code_issue_category"]
+          conditions?: string
+          end_column?: number | null
+          end_line?: number | null
+          file_id?: string
+          id?: string
+          message?: string
+          organization_id?: string
+          position?: number
+          related_file_count?: number
+          related_files?: Json
+          rule_id?: string | null
+          severity?: Database["public"]["Enums"]["risk_level"]
+          source?: Database["public"]["Enums"]["code_issue_source"]
+          start_column?: number | null
+          start_line?: number
+          status?: Database["public"]["Enums"]["code_issue_status"]
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_code_issues_analysis_id_organization_id_fkey"
+            columns: ["analysis_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "analysis_code_issues_file_id_analysis_id_organization_id_fkey"
+            columns: ["file_id", "analysis_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "analysis_files"
+            referencedColumns: ["id", "analysis_id", "organization_id"]
           },
         ]
       }
@@ -724,9 +808,13 @@ export type Database = {
         | "mapping"
         | "calculating"
         | "scoring"
+        | "checking"
         | "saving"
         | "complete"
       analysis_status: "pending" | "running" | "completed" | "failed"
+      code_issue_category: "syntax" | "type"
+      code_issue_source: "compiler"
+      code_issue_status: "confirmed"
       file_change_type: "added" | "modified" | "removed" | "renamed"
       finding_origin: "deterministic" | "ai"
       repository_run_stage:

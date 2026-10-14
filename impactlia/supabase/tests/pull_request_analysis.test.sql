@@ -125,6 +125,39 @@ begin
 end;
 $$;
 
+-- ── A code issue must sit in a changed file and link only to known files ───
+do $$
+declare
+  analysis uuid := (select id from checks.ids where name = 'analysis');
+  base text := '{"graphSha": null, "riskLevel": "low", "limitations": [],
+      "files": [{"kind": "changed", "path": "src/a.ts", "changeType": "modified",
+                 "additions": 1, "deletions": 0, "previousPath": null,
+                 "patchAvailable": true, "analysisState": "analysed", "stateReason": null}],
+      "dependencies": [], "signals": [], "recommendations": [],
+      "codeCheck": {"checked": [], "skipped": [], "setAside": [], "omitted": 0}';
+  issue text := '{"title": "Type error", "category": "type", "severity": "medium",
+      "status": "confirmed", "source": "compiler", "ruleId": "TS2322", "startLine": 1,
+      "startColumn": 1, "endLine": 1, "endColumn": 2, "message": "m", "conditions": "c",
+      "relatedFileCount": 1, ';
+  outcome text;
+begin
+  outcome := checks.error_of(format($q$select public.complete_analysis(%L, %L::jsonb)$q$, analysis,
+    base || ', "codeIssues": [' || issue || '"path": "src/other.ts", "relatedFiles": []}]}'));
+  assert outcome = '23514', format('an issue outside the changed files was accepted (%s)', outcome);
+  outcome := checks.error_of(format($q$select public.complete_analysis(%L, %L::jsonb)$q$, analysis,
+    base || ', "codeIssues": [' || issue || '"path": "src/a.ts",
+      "relatedFiles": [{"path": "src/nowhere.ts", "relationship": "import", "typeOnly": false}]}]}'));
+  assert outcome = '23514', format('an issue linked to an unknown file was accepted (%s)', outcome);
+  outcome := checks.error_of(format($q$select public.complete_analysis(%L, %L::jsonb)$q$, analysis,
+    replace(base, ', "codeCheck": {"checked": [], "skipped": [], "setAside": [], "omitted": 0}', '') || '}'));
+  assert outcome = '23514', format('a report without a code check was accepted (%s)', outcome);
+  assert (select status = 'running' from public.analyses where id = analysis),
+    'a refused report still changed the run';
+  assert not exists (select 1 from public.analysis_code_issues where analysis_id = analysis),
+    'a refused report left code issues behind';
+end;
+$$;
+
 -- ── A report is stored whole ───────────────────────────────────────────────
 select public.complete_analysis(
   (select id from checks.ids where name = 'analysis'),
@@ -161,7 +194,17 @@ select public.complete_analysis(
        "evidence": ["src/format.ts"]},
       {"body": "Trace the removed file by hand.", "reason": "It is not in the graph.",
        "evidence": ["src/gone.ts"]}
-    ]
+    ],
+    "codeIssues": [
+      {"title": "Type error", "category": "type", "severity": "medium", "status": "confirmed",
+       "source": "compiler", "ruleId": "TS2322", "path": "src/core.ts", "startLine": 4,
+       "startColumn": 9, "endLine": 4, "endColumn": 14,
+       "message": "Type 'string' is not assignable to type 'number'.",
+       "conditions": "Reported by the TypeScript compiler under tsconfig.json.",
+       "relatedFiles": [{"path": "src/format.ts", "relationship": "import", "typeOnly": false}],
+       "relatedFileCount": 1}
+    ],
+    "codeCheck": {"checked": ["src/core.ts"], "skipped": [], "setAside": [], "omitted": 0}
   }$report$::jsonb
 );
 
@@ -229,6 +272,17 @@ begin
     where recommendation.analysis_id = analysis and recommendation.position = 2
   ), 'recommendation evidence points at the wrong file';
 
+  assert (
+    select issue.rule_id = 'TS2322' and issue.start_line = 4 and issue.status = 'confirmed'
+      and file.path = 'src/core.ts' and file.kind = 'changed'
+      and issue.related_files -> 0 ->> 'path' = 'src/format.ts'
+    from public.analysis_code_issues as issue
+    join public.analysis_files as file on file.id = issue.file_id
+    where issue.analysis_id = analysis
+  ), 'the code issue was not stored against its changed file';
+  assert (select code_check -> 'checked' ->> 0 = 'src/core.ts' from public.analyses where id = analysis),
+    'the code check was not stored';
+
   -- A finished analysis never changes again.
   outcome := checks.error_of(format(
     $q$update public.analyses set failure_reason = 'x', status = 'failed' where id = %L$q$, analysis));
@@ -294,6 +348,7 @@ begin
   assert not exists (select 1 from public.analysis_risk_signals), 'another organization can read risk signals';
   assert not exists (select 1 from public.analysis_recommendations), 'another organization can read recommendations';
   assert not exists (select 1 from public.analysis_evidence), 'another organization can read evidence';
+  assert not exists (select 1 from public.analysis_code_issues), 'another organization can read code issues';
   -- Still set to the first organization's topic.
   assert not exists (select 1 from realtime.messages), 'another organization can join the run''s topic';
 
@@ -318,6 +373,12 @@ begin
     $q$insert into public.analysis_files (organization_id, analysis_id, path, kind, change_type)
        values ('org_first', %L, 'src/x.ts', 'changed', 'added')$q$, analysis));
   assert outcome = '42501', format('a file row was written into another organization (%s)', outcome);
+  outcome := checks.error_of(format(
+    $q$insert into public.analysis_code_issues (organization_id, analysis_id, file_id, position,
+         title, category, severity, status, source, start_line, message, conditions)
+       select 'org_first', %L, gen_random_uuid(), 9, 't', 'type', 'low', 'confirmed', 'compiler',
+         1, 'm', 'c'$q$, analysis));
+  assert outcome = '42501', format('a code issue was written into another organization (%s)', outcome);
 end;
 $$;
 
