@@ -1,6 +1,15 @@
 import "server-only";
 import type { PullRequest } from "@/lib/github/pull-request";
-import type { ImpactReport, Limitation, RiskLevel, SignalDetail } from "@/lib/impact/report";
+import { ISSUE_LIMIT } from "@/lib/impact/code-issues";
+import type {
+  CodeCheck,
+  CodeIssue,
+  ImpactReport,
+  Limitation,
+  RelatedFile,
+  RiskLevel,
+  SignalDetail,
+} from "@/lib/impact/report";
 import {
   STALE_AFTER_MS,
   isAnalysisStale,
@@ -196,6 +205,10 @@ export type StoredReport = {
   signals: StoredSignal[];
   recommendations: StoredRecommendation[];
   limitations: Limitation[];
+  codeIssues: CodeIssue[];
+  // null for an analysis completed before code checks existed: nothing was
+  // checked, which is not the same as nothing found.
+  codeCheck: CodeCheck | null;
   // Earlier and later analyses of the same pull request, newest first.
   otherRuns: {
     id: string;
@@ -235,11 +248,46 @@ function readLimitations(value: Json): Limitation[] {
   );
 }
 
+function readRelatedFiles(value: Json): RelatedFile[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) =>
+    isRecord(entry) && typeof entry.path === "string" && typeof entry.relationship === "string"
+      ? [{ path: entry.path, relationship: entry.relationship, typeOnly: entry.typeOnly === true }]
+      : [],
+  );
+}
+
+const isCount = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0;
+
+function readCodeCheck(value: Json | null): CodeCheck | null {
+  if (!isRecord(value)) return null;
+  const skipped = Array.isArray(value.skipped) ? value.skipped : [];
+  const setAside = Array.isArray(value.setAside) ? value.setAside : [];
+  return {
+    checked: strings(value.checked),
+    skipped: skipped.flatMap((entry) =>
+      isRecord(entry) && typeof entry.path === "string" && typeof entry.reason === "string"
+        ? [{ path: entry.path, reason: entry.reason }]
+        : [],
+    ),
+    setAside: setAside.flatMap((entry) =>
+      isRecord(entry) &&
+      typeof entry.ruleId === "string" &&
+      typeof entry.reason === "string" &&
+      isCount(entry.count)
+        ? [{ ruleId: entry.ruleId, reason: entry.reason, count: entry.count }]
+        : [],
+    ),
+    omitted: isCount(value.omitted) ? value.omitted : 0,
+  };
+}
+
 export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
   const client = createSupabaseClient();
-  const [analysis, changed, affected, signals, recommendations, evidence, otherRuns] =
+  const [analysis, changed, affected, signals, recommendations, evidence, codeIssues, otherRuns] =
     await Promise.all([
-      client.from("analyses").select("limitations").eq("id", run.id).single(),
+      client.from("analyses").select("limitations, code_check").eq("id", run.id).single(),
       client
         .from("analysis_files")
         .select(
@@ -276,6 +324,14 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
         .not("file_id", "is", null)
         .limit(EVIDENCE_LIMIT),
       client
+        .from("analysis_code_issues")
+        .select(
+          "title, category, severity, status, source, rule_id, start_line, start_column, end_line, end_column, message, conditions, related_files, related_file_count, file:analysis_files!inner (path)",
+        )
+        .eq("analysis_id", run.id)
+        .order("position")
+        .limit(ISSUE_LIMIT),
+      client
         .from("analyses")
         .select("id, status, head_sha, created_at")
         .eq("pull_request_id", run.pullRequest.id)
@@ -283,7 +339,16 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
         .order("created_at", { ascending: false })
         .limit(OTHER_RUN_LIMIT),
     ]);
-  const failed = [analysis, changed, affected, signals, recommendations, evidence, otherRuns].find(
+  const failed = [
+    analysis,
+    changed,
+    affected,
+    signals,
+    recommendations,
+    evidence,
+    codeIssues,
+    otherRuns,
+  ].find(
     (result) => result.error,
   );
   if (failed?.error) throw new Error(`The report could not be read: ${failed.error.message}`);
@@ -328,6 +393,24 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
       evidence: evidenceOf(row.id),
     })),
     limitations: readLimitations(analysis.data?.limitations ?? []),
+    codeIssues: (codeIssues.data ?? []).map((row) => ({
+      title: row.title,
+      category: row.category,
+      severity: row.severity,
+      status: row.status,
+      source: row.source,
+      ruleId: row.rule_id,
+      path: row.file.path,
+      startLine: row.start_line,
+      startColumn: row.start_column,
+      endLine: row.end_line,
+      endColumn: row.end_column,
+      message: row.message,
+      conditions: row.conditions,
+      relatedFiles: readRelatedFiles(row.related_files),
+      relatedFileCount: row.related_file_count,
+    })),
+    codeCheck: readCodeCheck(analysis.data?.code_check ?? null),
     otherRuns: (otherRuns.data ?? []).map((row) => ({
       id: row.id,
       status: row.status,

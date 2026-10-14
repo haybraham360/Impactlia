@@ -36,18 +36,26 @@ const timeFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
+// Every request is a read, so one that never connected is tried once more:
+// on an unreliable network a single failed connection is common, and a
+// second attempt usually gets through. A request that connected but did not
+// finish in time is not repeated.
 export async function request(url: string, accept: string, timeout: number): Promise<Response> {
-  try {
-    return await fetch(url, {
-      headers: { ...HEADERS, Accept: accept },
-      redirect: "follow",
-      signal: AbortSignal.timeout(timeout),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      throw new IngestionError("GitHub took too long to answer. Try again in a moment.");
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetch(url, {
+        headers: { ...HEADERS, Accept: accept },
+        redirect: "follow",
+        signal: AbortSignal.timeout(timeout),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new IngestionError("GitHub took too long to answer. Try again in a moment.");
+      }
+      if (attempt === 2) {
+        throw new IngestionError("GitHub could not be reached. Try again in a moment.");
+      }
     }
-    throw new IngestionError("GitHub could not be reached. Try again in a moment.");
   }
 }
 

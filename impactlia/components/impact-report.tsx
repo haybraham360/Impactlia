@@ -1,4 +1,5 @@
 import { Impact, InsufficientEvidence, Risk } from "@/components/analysis-run-list";
+import { CodeIssues, affectedFileAnchor } from "@/components/code-issues";
 import type { ReactNode } from "react";
 import type { RiskLevel } from "@/lib/impact/report";
 import { IMPACT_DEPTH, LEVEL_RULE, SIGNALS } from "@/lib/impact/risk";
@@ -226,7 +227,11 @@ function AffectedFiles({ files, total }: { files: StoredAffectedFile[]; total: n
             </h3>
             <ul className="panel overflow-hidden">
               {atDepth.map((file) => (
-                <li key={file.path} className="border-t border-line first:border-t-0">
+                <li
+                  key={file.path}
+                  id={affectedFileAnchor(file.path)}
+                  className="scroll-mt-28 border-t border-line first:border-t-0 target:bg-hover"
+                >
                   <details className="group">
                     <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-2.5 font-mono text-[0.8125rem] break-all transition-colors duration-150 hover:bg-hover group-open:bg-hover [&::-webkit-details-marker]:hidden">
                       <AffectedMark />
@@ -343,6 +348,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
           { href: "#signals", label: "Risk signals", count: report.signals.length },
           { href: "#changed", label: "Changed", count: changedTotal },
           { href: "#affected", label: "Potentially affected", count: affectedTotal },
+          { href: "#code-issues", label: "Code issues", count: report.codeIssues.length },
           { href: "#not-analysed", label: "Not analysed", count: unanalysed.length },
           { href: "#coverage", label: "Limitations", count: report.limitations.length },
           { href: "#checks", label: "Suggested checks", count: report.recommendations.length },
@@ -417,6 +423,20 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
         note="Files that import a changed file, directly or through other files. Each is counted once, at its shortest distance. Open one to see the chain of imports that puts it here."
       >
         <AffectedFiles files={report.affected} total={affectedTotal} />
+      </Section>
+
+      <Section
+        id="code-issues"
+        title={`Code issues (${numberFormat.format(report.codeIssues.length)})`}
+        note="Problems the TypeScript compiler reported at lines this pull request adds. Each comes from a tool, not from AI, and lists the files that import the code it is in."
+      >
+        <CodeIssues
+          run={run}
+          issues={report.codeIssues}
+          check={report.codeCheck}
+          changed={new Set(report.changed.map((file) => file.path))}
+          affected={new Set(report.affected.map((file) => file.path))}
+        />
       </Section>
 
       <Section

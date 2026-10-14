@@ -1,4 +1,5 @@
 import { IngestionError } from "../ingestion/errors";
+import { addedLines } from "../impact/patch";
 import type { ChangeType, PullRequestChanges, PullRequestFile } from "../impact/report";
 import { HEADERS, REQUEST_TIMEOUT_MS, refusal, repositoryApi, request } from "./public-repository";
 import type { RepositoryReference } from "./repository-url";
@@ -165,9 +166,10 @@ function readFile(value: unknown): PullRequestFile | null {
         : null,
     additions: count(body.additions, "a changed file's additions"),
     deletions: count(body.deletions, "a changed file's deletions"),
-    // Only whether there is one. The analysis is per file, so the patch's
-    // text is not kept.
+    // Whether there is one, and the line numbers it adds. The patch's text
+    // is not kept.
     patchAvailable: typeof body.patch === "string",
+    addedLines: typeof body.patch === "string" ? addedLines(body.patch) : null,
   };
 }
 

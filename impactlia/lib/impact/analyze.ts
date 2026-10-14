@@ -11,7 +11,7 @@ import {
 import type {
   AffectedReportFile,
   ChangedReportFile,
-  ImpactReport,
+  ImpactAnalysis,
   Limitation,
   PullRequestChanges,
   ReportDependency,
@@ -211,7 +211,7 @@ export function scoreImpact(
   mapping: ChangeMapping,
   radius: BlastRadius,
   graphSha: string | null,
-): ImpactReport {
+): ImpactAnalysis {
   const { nodeById, pathOf } = lookup(output);
   const { changed, starts, removed, outsideGraph, missing, unparsed } = mapping;
   const { index, traversal, affected, dependencies } = radius;
@@ -508,7 +508,7 @@ export function analyseImpact(
   output: ParserOutput,
   changes: PullRequestChanges,
   graphSha: string | null,
-): ImpactReport {
+): ImpactAnalysis {
   const mapping = mapChangedFiles(output, changes);
   return scoreImpact(
     output,
