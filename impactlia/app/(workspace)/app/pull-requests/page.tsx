@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AnalyzeButton, AnalyzeNumberForm } from "@/components/analyze-forms";
+import { EmptyState } from "@/components/empty-state";
+import { ArrowRightIcon, CheckIcon, PullRequestIcon, RepositoryIcon } from "@/components/icons";
 import {
   PULL_REQUEST_LIST_LIMIT,
   listOpenPullRequests,
@@ -27,27 +29,46 @@ async function ChooseRepository() {
   const repositories = await listRepositories();
   if (repositories.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed border-muted/60 px-5 py-4 text-sm text-muted">
-        This organization has no repository yet.{" "}
-        <Link href={WORKSPACE_PATH} className="text-accent hover:underline">
-          Add a public GitHub repository on the overview
-        </Link>
-        , then come back to choose one of its pull requests.
-      </p>
+      <EmptyState
+        kind="repository"
+        title="Your codebase journey starts here."
+        action={
+          <Link href={`${WORKSPACE_PATH}#add-repository`} className="btn btn-primary btn-small">
+            <RepositoryIcon className="size-3.5" />
+            Add a repository
+          </Link>
+        }
+      >
+        <p>
+          This organization has no repository yet. Add a public GitHub repository on the
+          overview, then come back to choose one of its pull requests.
+        </p>
+      </EmptyState>
     );
   }
   return (
-    <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+    <ul className="grid gap-3 sm:grid-cols-2">
       {repositories.map((repository) => (
-        <li key={repository.id} className="border-t border-line first:border-t-0">
+        <li key={repository.id}>
           <Link
             href={pullRequestsPath(repository.id)}
-            className="flex items-center justify-between gap-4 px-5 py-3.5 text-sm hover:bg-canvas"
+            className="panel lift group flex h-full items-center gap-3 px-4 py-3.5 text-sm"
           >
-            <span className="font-mono text-[0.9375rem] font-medium break-all">
-              {repository.owner}/{repository.name}
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-canvas text-accent">
+              <RepositoryIcon />
             </span>
-            <span className="shrink-0 text-accent">Choose a pull request</span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-mono text-[0.9375rem] font-medium break-all">
+                {repository.owner}/{repository.name}
+              </span>
+              <span className="block text-xs text-muted">
+                {repository.hasGraph ? "Dependency map stored" : "No dependency map stored yet"}
+              </span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-accent">
+              <span className="hidden sm:inline">Choose</span>
+              <ArrowRightIcon className="size-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+            </span>
           </Link>
         </li>
       ))}
@@ -64,19 +85,22 @@ function PullRequestRows({
 }) {
   if (pullRequests.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed border-muted/60 px-5 py-4 text-sm text-muted">
-        GitHub lists no open pull requests for this repository. A closed or merged one can
-        still be analyzed by its number.
-      </p>
+      <EmptyState kind="pull-request" title="No open pull requests">
+        <p>
+          GitHub lists no open pull requests for this repository. A closed or merged one can
+          still be analyzed by its number, below.
+        </p>
+      </EmptyState>
     );
   }
   return (
-    <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+    <ul className="panel overflow-hidden">
       {pullRequests.map((pullRequest) => (
         <li
           key={pullRequest.number}
-          className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-t border-line px-5 py-4 text-sm first:border-t-0"
+          className="flex flex-wrap items-start justify-between gap-x-5 gap-y-3 border-t border-line px-5 py-4 text-sm transition-colors duration-150 first:border-t-0 hover:bg-hover"
         >
+          <PullRequestIcon className="mt-1 hidden size-4 text-accent sm:block" />
           <div className="min-w-0 flex-1 basis-72">
             <p className="text-[0.9375rem] leading-snug font-medium">
               {pullRequest.title}
@@ -121,7 +145,7 @@ async function OpenPullRequests({ repository }: { repository: RepositoryIdentity
       console.error("Open pull requests could not be listed:", error);
     }
     return (
-      <div className="rounded-lg border border-critical/40 bg-surface px-5 py-4 text-sm">
+      <div role="alert" className="panel border-critical/40 px-5 py-4 text-sm">
         <p className="font-medium text-critical">The open pull requests could not be listed</p>
         <p className="mt-1">
           {error instanceof IngestionError
@@ -148,6 +172,65 @@ async function OpenPullRequests({ repository }: { repository: RepositoryIdentity
   );
 }
 
+// Where this page is in the journey. A step is marked done only by what the
+// address says has been chosen; nothing here guesses.
+function Steps({ chosen }: { chosen: boolean }) {
+  const steps = [
+    { label: "Repository", done: chosen, current: !chosen },
+    { label: "Pull request", done: false, current: chosen },
+    { label: "Impact report", done: false, current: false },
+  ];
+  return (
+    <ol aria-label="Steps" className="mb-8 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+      {steps.map((step, index) => (
+        <li
+          key={step.label}
+          aria-current={step.current ? "step" : undefined}
+          className="flex items-center gap-2"
+        >
+          {index > 0 && <span aria-hidden="true" className="h-px w-5 bg-line sm:w-8" />}
+          <span
+            className={`flex items-center gap-2 rounded-full border px-3 py-1 ${
+              step.current
+                ? "border-accent/50 bg-accent/10 font-medium text-ink"
+                : step.done
+                  ? "border-line text-ink"
+                  : "border-line text-muted"
+            }`}
+          >
+            <span
+              className={`flex size-4.5 items-center justify-center rounded-full text-[0.625rem] font-semibold ${
+                step.done || step.current ? "bg-accent text-accent-ink" : "border border-line"
+              }`}
+            >
+              {step.done ? <CheckIcon className="size-2.5" /> : index + 1}
+            </span>
+            {step.label}
+            {step.done && <span className="sr-only">: chosen</span>}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function RowsFallback() {
+  return (
+    <div className="panel divide-y divide-line">
+      <span className="sr-only">Asking GitHub…</span>
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="flex items-center gap-5 px-5 py-4">
+          <div className="flex-1">
+            <div aria-hidden="true" className="skeleton h-4 w-full max-w-md" />
+            <div aria-hidden="true" className="skeleton mt-2 h-3 w-full max-w-xs" />
+          </div>
+          <div aria-hidden="true" className="skeleton h-8 w-20 rounded-lg" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 async function Picker({
   searchParams,
 }: {
@@ -158,6 +241,7 @@ async function Picker({
   if (typeof requested !== "string") {
     return (
       <>
+        <Steps chosen={false} />
         <h2 className="mb-3 text-lg font-semibold">Choose a repository</h2>
         <ChooseRepository />
       </>
@@ -170,7 +254,8 @@ async function Picker({
   if (!repository || repository.isSeed) {
     return (
       <>
-        <p className="mb-6 border-l-2 border-critical pl-3 text-sm text-critical">
+        <Steps chosen={false} />
+        <p role="alert" className="mb-6 border-l-2 border-critical pl-3 text-sm text-critical">
           That repository is not in this organization.
         </p>
         <h2 className="mb-3 text-lg font-semibold">Choose a repository</h2>
@@ -181,19 +266,26 @@ async function Picker({
 
   return (
     <>
-      <p className="mb-6 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-        <a
-          href={repositoryUrl(repository)}
-          className="font-mono text-base font-medium break-all hover:underline"
-        >
-          {repository.owner}/{repository.name}
-        </a>
-        <Link href={PULL_REQUESTS_PATH} className="text-accent hover:underline">
+      <Steps chosen />
+      <div className="panel mb-8 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-sm">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-canvas text-accent">
+          <RepositoryIcon />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs text-muted">Selected repository</span>
+          <a
+            href={repositoryUrl(repository)}
+            className="font-mono text-base font-medium break-all hover:underline"
+          >
+            {repository.owner}/{repository.name}
+          </a>
+        </span>
+        <Link href={PULL_REQUESTS_PATH} className="btn btn-secondary btn-small">
           Choose another repository
         </Link>
-      </p>
+      </div>
       <h2 className="mb-3 text-lg font-semibold">Open pull requests</h2>
-      <Suspense fallback={<p className="text-sm text-muted">Asking GitHub…</p>}>
+      <Suspense fallback={<RowsFallback />}>
         <OpenPullRequests repository={repository} />
       </Suspense>
       <div className="mt-8">
@@ -205,8 +297,8 @@ async function Picker({
 
 export default function PullRequestsPage({ searchParams }: PageProps<"/app/pull-requests">) {
   return (
-    <div className="max-w-5xl">
-      <h1 className="text-3xl font-semibold tracking-tight">Analyze a pull request</h1>
+    <div className="enter mx-auto max-w-5xl">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Analyze a pull request</h1>
       <p className="mt-2 mb-8 max-w-prose text-sm text-muted">
         The pull request’s head commit is downloaded from GitHub and its imports are mapped,
         then the files it changes are followed to everything that imports them. Only public

@@ -112,7 +112,7 @@ export type RepositoryEntry = {
 };
 
 // The dashboard shows the most recent repositories, not all of them.
-const REPOSITORY_LIMIT = 50;
+export const REPOSITORY_LIMIT = 50;
 const FAILED_SUBMISSION_LIMIT = 10;
 
 export async function listRepositories(): Promise<RepositoryEntry[]> {

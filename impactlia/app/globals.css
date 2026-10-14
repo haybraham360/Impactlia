@@ -5,23 +5,30 @@
    the root element. */
 :root {
   color-scheme: light dark;
-  --canvas: light-dark(#f4f6f8, #0f141a);
-  --surface: light-dark(#ffffff, #161c24);
-  --ink: light-dark(#17212e, #e5e9ef);
-  --muted: light-dark(#566273, #98a4b3);
-  --line: light-dark(#dce1e7, #27313c);
-  --accent: light-dark(#2a55c8, #8aa6f7);
-  --accent-ink: light-dark(#ffffff, #0f141a);
+  --canvas: light-dark(#f5f4fa, #0c0a16);
+  --surface: light-dark(#ffffff, #151223);
+  /* A panel lifted off the surface: the top of its gradient. */
+  --raised: light-dark(#ffffff, #1c182e);
+  --ink: light-dark(#1a1630, #f1eff8);
+  --muted: light-dark(#5d5873, #aaa5c2);
+  --line: light-dark(#e1deec, #2d2843);
+  --accent: light-dark(#5b3fd4, #a191ff);
+  --accent-ink: light-dark(#ffffff, #0c0a16);
   /* These three carry meaning (state and risk) and are never decoration. */
-  --positive: light-dark(#1f7a4d, #62c08e);
-  --caution: light-dark(#8a5a00, #e0b252);
-  --critical: light-dark(#b3352b, #f08a80);
+  --positive: light-dark(#2f7a1f, #bdee7a);
+  --caution: light-dark(#8a5a00, #f7c76e);
+  --critical: light-dark(#b3352b, #ff8f86);
   /* Dependency direction, relative to the selection. Kept away from the
      state colours above, and always paired with a solid or dashed line so
      direction never rests on colour alone. */
-  --incoming: light-dark(#7a3fc0, #c3a0f5);
-  --outgoing: light-dark(#0b7285, #5cc8d8);
-  --edge: light-dark(#9aa5b3, #4a5766);
+  --incoming: light-dark(#a8277a, #ff7cc8);
+  --outgoing: light-dark(#0b7285, #62e0e6);
+  --edge: light-dark(#a39fb8, #5a5378);
+  /* Depth and pointer feedback. */
+  --shadow: light-dark(rgb(40 30 90 / 0.12), rgb(0 0 0 / 0.75));
+  --highlight: light-dark(rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.05));
+  --hover: light-dark(rgb(26 22 48 / 0.04), rgb(255 255 255 / 0.05));
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 :root[data-theme="light"] {
@@ -46,6 +53,8 @@
   --color-incoming: var(--incoming);
   --color-outgoing: var(--outgoing);
   --color-edge: var(--edge);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
   --font-sans: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
 }
@@ -104,9 +113,38 @@ body {
   animation: impact-draw 500ms ease-out backwards;
 }
 
+/* A status in the hero's demo: dim until its moment, then lit for good. */
+@keyframes impact-stage {
+  from {
+    opacity: 0.35;
+    filter: grayscale(1);
+  }
+}
+
+/* A changed file in the hero's pull request flashes once as it is picked up.
+   It ends on its plain style, so nothing is lost if it never runs. */
+@keyframes impact-pulse {
+  40% {
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 18px -2px color-mix(in oklab, var(--accent) 60%, transparent);
+    background-color: color-mix(in oklab, var(--accent) 14%, transparent);
+  }
+}
+
+.impact-stage {
+  animation: impact-stage 300ms ease-out backwards;
+}
+
+.impact-pulse {
+  animation: impact-pulse 900ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .impact-step,
-  .impact-edge {
+  .impact-edge,
+  .impact-stage,
+  .impact-pulse {
     animation: none;
   }
 }
@@ -165,7 +203,7 @@ body {
 
   /* The hero map already builds itself in order. If it starts below the
      screen, its sequence is held back and restarts when it scrolls in. */
-  [data-reveal="sequence"][data-reveal-state="pending"] :is(.impact-step, .impact-edge) {
+  [data-reveal="sequence"][data-reveal-state="pending"] :is(.impact-step, .impact-edge, .impact-stage, .impact-pulse) {
     animation: none;
   }
 
@@ -204,4 +242,261 @@ body {
       opacity: 1;
     }
   }
+}
+
+/* The public landing page is always the dark side of the same tokens,
+   whatever theme the visitor has chosen: light-dark() is resolved where a
+   token is used, so setting the scheme here is enough. The workspace and the
+   sign-in screens follow the theme control. */
+.landing {
+  color-scheme: dark;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.landing ::selection {
+  background: color-mix(in oklab, var(--accent) 45%, transparent);
+}
+
+/* Component classes sit in their layer so a utility on the same element
+   still wins, the way it would against any Tailwind class. */
+@layer components {
+  /* Highlighted words in headlines. Text in forced-colours mode falls back to
+     the system colour, so the words never disappear. */
+  .text-spectrum {
+    background: linear-gradient(95deg, var(--accent), var(--incoming) 55%, var(--outgoing));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  @media (forced-colors: active) {
+    .text-spectrum {
+      background: none;
+      color: CanvasText;
+    }
+  }
+
+  /* The hero's atmosphere: two still glows and a faint dot grid that fades out
+     towards the edges. Nothing here moves. */
+  .landing-glow {
+    background:
+      radial-gradient(48rem 26rem at 18% 8%, rgb(161 145 255 / 0.2), transparent 70%),
+      radial-gradient(40rem 24rem at 86% 22%, rgb(255 124 200 / 0.12), transparent 70%),
+      radial-gradient(36rem 20rem at 50% 100%, rgb(98 224 230 / 0.08), transparent 70%);
+  }
+
+  .landing-grid {
+    background-image: radial-gradient(rgb(255 255 255 / 0.07) 1px, transparent 1px);
+    background-size: 22px 22px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent);
+  }
+
+  /* A product panel: lit from above, resting on a soft shadow. */
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 0.875rem;
+    background: linear-gradient(180deg, var(--raised), var(--surface));
+    box-shadow:
+      inset 0 1px 0 var(--highlight),
+      0 30px 60px -32px var(--shadow);
+  }
+
+  /* Cards that lift a little under the pointer and settle back. */
+  .lift {
+    transition:
+      transform 200ms var(--ease-out),
+      border-color 200ms var(--ease-out),
+      box-shadow 200ms var(--ease-out);
+  }
+
+  .lift:hover {
+    border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+    box-shadow:
+      inset 0 1px 0 var(--highlight),
+      0 24px 48px -24px var(--shadow);
+  }
+
+  /* Buttons with a visible edge underneath, pressed into it on click. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.625rem;
+    padding: 0.6875rem 1.125rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    cursor: pointer;
+    transition:
+      transform 120ms var(--ease-out),
+      box-shadow 120ms var(--ease-out),
+      background-color 150ms var(--ease-out),
+      border-color 150ms var(--ease-out);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.4),
+      0 3px 0 color-mix(in oklab, var(--accent) 62%, black),
+      0 10px 24px -10px color-mix(in oklab, var(--accent) 60%, transparent);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--accent) 86%, white);
+  }
+
+  .btn-secondary {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: 0 3px 0 var(--line);
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    border-color: color-mix(in oklab, var(--ink) 35%, var(--line));
+    background: var(--raised);
+  }
+
+  .btn-small {
+    padding: 0.4375rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .lift:hover {
+      transform: translateY(-3px);
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: translateY(2px);
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.3),
+        0 1px 0 color-mix(in oklab, var(--accent) 62%, black);
+    }
+
+    .btn-secondary:active:not(:disabled) {
+      transform: translateY(2px);
+      box-shadow: 0 1px 0 var(--line);
+    }
+  }
+
+  /* The navigation starts see-through over the hero and settles into a solid
+     bar as the page scrolls, and a thin line along its bottom shows how far
+     through the page the reader is. Both are tied to the scroll position
+     itself, so there is no script and nothing runs while the page is still.
+     Where the browser cannot do this, the bar is simply solid. */
+  .landing-nav {
+    background-color: rgb(12 10 22 / 0.85);
+    border-color: var(--line);
+  }
+
+  .landing-progress {
+    display: none;
+  }
+
+  @supports (animation-timeline: scroll()) {
+    .landing-nav {
+      animation: landing-nav-solid linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 140px;
+    }
+
+    .landing-progress {
+      display: block;
+      transform-origin: left;
+      animation: landing-progress linear both;
+      animation-timeline: scroll(root);
+    }
+
+    @keyframes landing-nav-solid {
+      from {
+        background-color: rgb(12 10 22 / 0);
+        border-color: transparent;
+      }
+      to {
+        background-color: rgb(12 10 22 / 0.85);
+        border-color: var(--line);
+      }
+    }
+
+    @keyframes landing-progress {
+      from {
+        transform: scaleX(0);
+      }
+      to {
+        transform: scaleX(1);
+      }
+    }
+  }
+}
+
+/* Workspace motion. Only two things here move on their own, and only while
+   something real is happening: the ring around a stage the server says is
+   running, and the shimmer of a placeholder while its data is on the way. */
+@keyframes live-ring {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 55%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 7px color-mix(in oklab, var(--accent) 0%, transparent);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* A page or a panel arriving: a short rise, once. */
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@layer components {
+  /* The still light behind a page's leading panel. */
+  .panel-glow {
+    background:
+      radial-gradient(40rem 16rem at 0% 0%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 70%),
+      radial-gradient(28rem 14rem at 100% 0%, color-mix(in oklab, var(--incoming) 10%, transparent), transparent 70%);
+  }
+
+  .skeleton {
+    border-radius: 0.375rem;
+    background: linear-gradient(90deg, var(--line) 30%, var(--raised) 50%, var(--line) 70%);
+    background-size: 200% 100%;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .live-ring {
+    animation: live-ring 1.6s var(--ease-out) infinite;
+  }
+
+  .skeleton {
+    animation: skeleton-shimmer 1.4s linear infinite;
+  }
+
+  .enter {
+    animation: enter 320ms var(--ease-out) backwards;
+  }
+}
+
+/* So the page does not flash the app's canvas when it bounces at either end. */
+body:has(.landing) {
+  background: #0c0a16;
 }

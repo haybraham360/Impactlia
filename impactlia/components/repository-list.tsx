@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { EmptyState } from "@/components/empty-state";
+import { RepositoryIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { retryRun } from "@/lib/ingestion/actions";
 import type { RepositoryEntry, RepositoryRun } from "@/lib/ingestion/runs";
@@ -116,14 +118,17 @@ function Row({
 }) {
   const state = stateOf(run);
   return (
-    <li className="flex flex-wrap items-start gap-x-6 gap-y-3 border-t border-line px-5 py-4 text-sm first:border-t-0">
-      <div className="w-28 shrink-0">
-        <StatePill state={state} />
-      </div>
+    <li className="flex flex-wrap items-start gap-x-5 gap-y-3 border-t border-line px-5 py-4 text-sm transition-colors duration-150 first:border-t-0 hover:bg-hover">
+      <span className="mt-0.5 hidden size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-canvas text-accent sm:flex">
+        <RepositoryIcon />
+      </span>
       <div className="min-w-0 flex-1 basis-72">
+        <div className="mb-1.5">
+          <StatePill state={state} />
+        </div>
         <p className="font-mono text-[0.9375rem] font-medium break-all">
           {href ? (
-            <Link href={href} className="hover:underline">
+            <Link href={href} className="hover:text-accent hover:underline">
               {title}
             </Link>
           ) : (
@@ -146,14 +151,16 @@ function Row({
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {hasGraph && repositoryId && (
-          <Link
-            href={repositoryPath(repositoryId)}
-            className="rounded-md border border-line bg-surface px-3.5 py-2 font-medium hover:bg-canvas"
-          >
+          <Link href={repositoryPath(repositoryId)} className="btn btn-secondary btn-small">
             Open map
           </Link>
         )}
-        {repositoryId && (
+        {repositoryId && hasGraph && (
+          <Link href={pullRequestsPath(repositoryId)} className="btn btn-primary btn-small">
+            Pull requests
+          </Link>
+        )}
+        {repositoryId && !hasGraph && (
           <Link href={pullRequestsPath(repositoryId)} className="text-accent hover:underline">
             Pull requests
           </Link>
@@ -181,17 +188,29 @@ export function RepositoryList({
   );
   if (withRuns.length === 0 && failedSubmissions.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed border-muted/60 px-5 py-4 text-sm text-muted">
-        No repository has been analyzed yet. Enter a public GitHub repository above to
-        build its dependency map.
-      </p>
+      <EmptyState
+        kind="repository"
+        title="Your codebase journey starts here."
+        action={
+          // A label for the field above: pressing it puts the cursor there.
+          <label htmlFor="repository-url" className="btn btn-primary btn-small">
+            Enter a repository URL
+          </label>
+        }
+      >
+        <p>
+          Add a public GitHub repository to map the imports between its TypeScript and
+          JavaScript files. Its pull requests can then be traced through that map.
+        </p>
+        <p>No GitHub sign-in or permission is asked for, and nothing in the repository is run.</p>
+      </EmptyState>
     );
   }
 
   return (
     <>
       {withRuns.length > 0 && (
-        <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+        <ul className="panel overflow-hidden">
           {withRuns.map(({ repository, run }) => (
             <Row
               key={repository.id}
@@ -207,7 +226,7 @@ export function RepositoryList({
       {failedSubmissions.length > 0 && (
         <>
           <h3 className="mt-6 mb-2 text-sm font-medium">Submissions that could not be validated</h3>
-          <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+          <ul className="panel overflow-hidden">
             {failedSubmissions.map((run) => (
               <Row
                 key={run.id}

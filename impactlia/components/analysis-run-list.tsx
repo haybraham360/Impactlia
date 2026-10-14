@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { EmptyState } from "@/components/empty-state";
+import { PullRequestIcon } from "@/components/icons";
 import type { RiskLevel } from "@/lib/impact/report";
 import type { AnalysisRun, AnalysisStatus } from "@/lib/impact/runs";
 import { STALE_AFTER_MS, analysisStageOf } from "@/lib/impact/stages";
@@ -163,102 +165,143 @@ export function InsufficientEvidence() {
   return <span className="whitespace-nowrap text-muted">Insufficient evidence</span>;
 }
 
+// What a run is doing or why it stopped, under its title.
+function RunNote({ run, state }: { run: AnalysisRun; state: RunState }) {
+  return (
+    <>
+      {state === "running" && (
+        <p className="mt-1 text-muted">{analysisStageOf(run.stage).label}</p>
+      )}
+      {state === "stale" && (
+        <p className="mt-1 text-muted">
+          No progress recorded for over {STALE_AFTER_MS / 60_000} minutes. Last stage started:{" "}
+          {analysisStageOf(run.stage).label}.
+        </p>
+      )}
+      {run.failureReason && (
+        <p className="mt-2.5 border-l-2 border-critical pl-3 text-critical">
+          Failed in “{analysisStageOf(run.stage).label}”. {run.failureReason}
+        </p>
+      )}
+    </>
+  );
+}
+
+function RunTitle({ run }: { run: AnalysisRun }) {
+  return (
+    <>
+      <p className="text-[0.9375rem] leading-snug font-medium">
+        <Link href={analysisPath(run.id)} className="hover:text-accent hover:underline">
+          {run.pullRequest.title}
+        </Link>
+      </p>
+      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted">
+        <span className="font-mono text-[0.8125rem] break-all">
+          {run.repository.owner}/{run.repository.name}
+          <span className="text-ink">#{run.pullRequest.number}</span>
+        </span>
+        <span>by {run.pullRequest.authorLogin}</span>
+        <span>
+          at <span className="font-mono text-[0.8125rem]">{run.headSha.slice(0, 7)}</span>
+        </span>
+      </p>
+    </>
+  );
+}
+
+function RunImpact({ run, state }: { run: AnalysisRun; state: RunState }) {
+  return run.changedFileCount !== null && run.affectedFileCount !== null ? (
+    <Impact changed={run.changedFileCount} affected={run.affectedFileCount} />
+  ) : (
+    <span className="whitespace-nowrap text-muted">{statuses[state].noResult}</span>
+  );
+}
+
+function RunRisk({ run }: { run: AnalysisRun }) {
+  return run.riskLevel ? (
+    <Risk level={run.riskLevel} />
+  ) : run.status === "completed" ? (
+    <InsufficientEvidence />
+  ) : (
+    <NotAvailable />
+  );
+}
+
+function Requested({ run, inline = false }: { run: AnalysisRun; inline?: boolean }) {
+  const requested = new Date(run.createdAt);
+  return (
+    <time dateTime={run.createdAt}>
+      {dateFormat.format(requested)}
+      <span className={inline ? "text-muted" : "block text-muted"}>
+        {inline ? ", " : ""}
+        {timeFormat.format(requested)} UTC
+      </span>
+    </time>
+  );
+}
+
 function RunRow({ run }: { run: AnalysisRun }) {
   const state = runStateOf(run);
-  const status = statuses[state];
-  const requested = new Date(run.createdAt);
-
   return (
-    <tr className="border-t border-line align-top">
+    <tr className="border-t border-line align-top transition-colors duration-150 hover:bg-hover">
       <td className="py-4 pr-6 pl-5 whitespace-nowrap">
         <StatePill state={state} />
       </td>
       <td className="max-w-md min-w-72 py-4 pr-6">
-        <p className="text-[0.9375rem] leading-snug font-medium">
-          <Link href={analysisPath(run.id)} className="hover:underline">
-            {run.pullRequest.title}
-          </Link>
-        </p>
-        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted">
-          <span className="font-mono text-[0.8125rem]">
-            {run.repository.owner}/{run.repository.name}
-            <span className="text-ink">#{run.pullRequest.number}</span>
-          </span>
-          <span>by {run.pullRequest.authorLogin}</span>
-          <span>
-            at <span className="font-mono text-[0.8125rem]">{run.headSha.slice(0, 7)}</span>
-          </span>
-        </p>
-        {state === "running" && (
-          <p className="mt-1 text-muted">{analysisStageOf(run.stage).label}</p>
-        )}
-        {state === "stale" && (
-          <p className="mt-1 text-muted">
-            No progress recorded for over {STALE_AFTER_MS / 60_000} minutes. Last stage started:{" "}
-            {analysisStageOf(run.stage).label}.
-          </p>
-        )}
-        {run.failureReason && (
-          <p className="mt-2.5 border-l-2 border-critical pl-3 text-critical">
-            Failed in “{analysisStageOf(run.stage).label}”. {run.failureReason}
-          </p>
-        )}
+        <RunTitle run={run} />
+        <RunNote run={run} state={state} />
       </td>
       <td className="py-4 pr-6">
-        {run.changedFileCount !== null && run.affectedFileCount !== null ? (
-          <Impact
-            changed={run.changedFileCount}
-            affected={run.affectedFileCount}
-          />
-        ) : (
-          <span className="whitespace-nowrap text-muted">
-            {status.noResult}
-          </span>
-        )}
+        <RunImpact run={run} state={state} />
       </td>
       <td className="py-4 pr-6 whitespace-nowrap">
-        {run.riskLevel ? (
-          <Risk level={run.riskLevel} />
-        ) : run.status === "completed" ? (
-          <InsufficientEvidence />
-        ) : (
-          <NotAvailable />
-        )}
+        <RunRisk run={run} />
       </td>
       <td className="py-4 pr-5 whitespace-nowrap">
-        <time dateTime={run.createdAt}>
-          {dateFormat.format(requested)}
-          <span className="block text-muted">
-            {timeFormat.format(requested)} UTC
-          </span>
-        </time>
+        <Requested run={run} />
       </td>
     </tr>
   );
 }
 
-// What an analysis consists of. A real sequence, so numbered.
-const steps = [
-  {
-    title: "Add a repository",
-    detail: "A public GitHub repository, in the section above.",
-  },
-  {
-    title: "Select a pull request",
-    detail: "Its changed files are matched against its head commit’s imports.",
-  },
-  {
-    title: "Read the impact analysis",
-    detail: "What the change could affect, and what to review or test.",
-  },
-];
+// The same facts as a table row, stacked for a narrow screen, each labelled
+// because there is no column header above it.
+function RunCard({ run }: { run: AnalysisRun }) {
+  const state = runStateOf(run);
+  return (
+    <li className="border-t border-line px-4 py-4 text-sm first:border-t-0">
+      <div className="flex items-center justify-between gap-3">
+        <StatePill state={state} />
+        <span className="text-xs">
+          <Requested run={run} inline />
+        </span>
+      </div>
+      <div className="mt-3">
+        <RunTitle run={run} />
+        <RunNote run={run} state={state} />
+      </div>
+      <dl className="mt-3 grid gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <dt className="w-12 text-xs text-muted">Impact</dt>
+          <dd>
+            <RunImpact run={run} state={state} />
+          </dd>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <dt className="w-12 text-xs text-muted">Risk</dt>
+          <dd>
+            <RunRisk run={run} />
+          </dd>
+        </div>
+      </dl>
+    </li>
+  );
+}
 
 function AnalyzeLink() {
   return (
-    <Link
-      href={PULL_REQUESTS_PATH}
-      className="inline-block rounded-md bg-accent px-3.5 py-2 text-sm font-medium text-accent-ink"
-    >
+    <Link href={PULL_REQUESTS_PATH} className="btn btn-primary btn-small">
+      <PullRequestIcon className="size-3.5" />
       Analyze a pull request
     </Link>
   );
@@ -266,33 +309,16 @@ function AnalyzeLink() {
 
 function NoRuns() {
   return (
-    <div className="rounded-lg border border-line bg-surface">
-      <div className="border-b border-line px-6 py-6">
-        <p className="text-base font-medium">
-          No pull request has been analyzed yet
-        </p>
-        <p className="mt-1 max-w-prose text-sm text-muted">
-          Each analysis is listed here with its state, the files the pull
-          request changed, the files it could affect and its risk level.
-        </p>
-        <p className="mt-4">
-          <AnalyzeLink />
-        </p>
-      </div>
-      <ol className="grid gap-6 px-6 py-6 text-sm sm:grid-cols-3">
-        {steps.map((step, index) => (
-          <li key={step.title} className="flex gap-3">
-            <span className="grid size-6 shrink-0 place-items-center rounded-full border border-line font-mono text-xs text-muted">
-              {index + 1}
-            </span>
-            <span>
-              <span className="block font-medium">{step.title}</span>
-              <span className="block text-muted">{step.detail}</span>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
+    <EmptyState
+      kind="report"
+      title="Your first impact report is one step away."
+      action={<AnalyzeLink />}
+    >
+      <p>
+        Choose a pull request from a repository you have added. Each analysis is listed here
+        with its state, the files it changed, the files it could affect and its risk level.
+      </p>
+    </EmptyState>
   );
 }
 
@@ -311,11 +337,8 @@ export function AnalysisRunList({ runs }: { runs: AnalysisRun[] }) {
 
   return (
     <>
-      <p className="mb-4">
-        <AnalyzeLink />
-      </p>
-      <div className="overflow-hidden rounded-lg border border-line bg-surface">
-        <ul className="flex flex-wrap gap-x-6 gap-y-2 border-b border-line px-5 py-3 text-sm">
+      <div className="panel overflow-hidden">
+        <ul className="flex flex-wrap gap-x-6 gap-y-2 border-b border-line px-4 py-3 text-sm sm:px-5">
           {counts.map(({ status, count }) => (
             <li
               key={status}
@@ -329,7 +352,12 @@ export function AnalysisRunList({ runs }: { runs: AnalysisRun[] }) {
             </li>
           ))}
         </ul>
-        <div className="overflow-x-auto">
+        <ul className="md:hidden">
+          {runs.map((run) => (
+            <RunCard key={run.id} run={run} />
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-left text-sm">
             <thead className="bg-canvas/60 text-xs text-muted">
               <tr>

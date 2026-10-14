@@ -9,7 +9,7 @@ import { analyzePullRequest, reanalyzePullRequest } from "@/lib/impact/actions";
 
 function Refusal({ message }: { message: string }) {
   return (
-    <p role="alert" className="mt-2 max-w-prose border-l-2 border-critical pl-3 text-sm text-critical">
+    <p role="alert" className="enter mt-2 max-w-prose border-l-2 border-critical pl-3 text-sm text-critical">
       {message}
     </p>
   );
@@ -38,7 +38,7 @@ export function AnalyzeButton({
 export function AnalyzeNumberForm({ repositoryId }: { repositoryId: string }) {
   const [state, action] = useActionState(analyzePullRequest, null);
   return (
-    <form action={action} className="rounded-lg border border-line bg-surface px-5 py-4">
+    <form action={action} className="panel px-5 py-4">
       <input type="hidden" name="repositoryId" value={repositoryId} />
       <label htmlFor="pull-request" className="block text-sm font-medium">
         Any pull request, by number
@@ -55,7 +55,7 @@ export function AnalyzeNumberForm({ repositoryId }: { repositoryId: string }) {
           spellCheck={false}
           placeholder="128"
           aria-describedby="pull-request-help"
-          className="min-w-0 flex-1 basis-40 rounded-md border border-line bg-canvas px-3 py-2 font-mono text-[0.8125rem] placeholder:text-muted/70"
+          className="min-w-0 flex-1 basis-40 rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[0.8125rem] transition-colors duration-150 placeholder:text-muted/70 hover:border-ink/30 focus-visible:border-accent"
         />
         <SubmitButton pendingLabel="Checking the pull request…">Analyze pull request</SubmitButton>
       </div>

@@ -1,4 +1,5 @@
 import { Impact, InsufficientEvidence, Risk } from "@/components/analysis-run-list";
+import type { ReactNode } from "react";
 import type { RiskLevel } from "@/lib/impact/report";
 import { IMPACT_DEPTH, LEVEL_RULE, SIGNALS } from "@/lib/impact/risk";
 import {
@@ -28,26 +29,30 @@ const changeLabels: Record<StoredChangedFile["changeType"], string> = {
   renamed: "Renamed",
 };
 
-const levelTone: Record<RiskLevel, string> = {
-  low: "text-positive",
-  medium: "text-caution",
-  high: "text-critical",
+const levelBorder: Record<RiskLevel, string> = {
+  low: "border-l-positive",
+  medium: "border-l-caution",
+  high: "border-l-critical",
 };
 
 const isSignal = (id: string): id is SignalId => SIGNAL_IDS.some((known) => known === id);
 
 function Section({
+  id,
   title,
   note,
   children,
 }: {
+  id: string;
   title: string;
   note?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="mt-10">
-      <h2 className="text-lg font-semibold">{title}</h2>
+    <section id={id} aria-labelledby={`${id}-heading`} className="mt-10 scroll-mt-20">
+      <h2 id={`${id}-heading`} className="text-lg font-semibold">
+        {title}
+      </h2>
       {note && <p className="mt-1 max-w-prose text-sm text-muted">{note}</p>}
       <div className="mt-4">{children}</div>
     </section>
@@ -67,7 +72,7 @@ function Paths({ paths }: { paths: string[] }) {
 
 function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-lg border border-dashed border-muted/60 px-5 py-4 text-sm text-muted">
+    <p className="rounded-xl border border-dashed border-muted/50 px-5 py-4 text-sm text-muted">
       {children}
     </p>
   );
@@ -79,7 +84,7 @@ function ChangedFiles({ files, total }: { files: StoredChangedFile[]; total: num
   }
   return (
     <>
-      <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+      <div className="panel overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="bg-canvas/60 text-xs text-muted">
             <tr>
@@ -93,6 +98,7 @@ function ChangedFiles({ files, total }: { files: StoredChangedFile[]; total: num
             {files.map((file) => (
               <tr key={file.path} className="border-t border-line align-top">
                 <td className="py-3 pr-6 pl-5 font-mono text-[0.8125rem] break-all">
+                  <ChangedMark />
                   {file.path}
                   {file.previousPath && (
                     <span className="block text-muted">was {file.previousPath}</span>
@@ -131,29 +137,62 @@ function ChangedFiles({ files, total }: { files: StoredChangedFile[]; total: num
   );
 }
 
+// The two file marks used across the product: solid for a file the pull
+// request changed (a fact), a ring for one that imports changed code (a
+// possibility). Shape as well as colour.
+function ChangedMark() {
+  return (
+    <span
+      aria-hidden="true"
+      className="mr-2 inline-block size-2 rotate-45 bg-accent align-[0.05em]"
+    />
+  );
+}
+
+function AffectedMark() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block size-2 shrink-0 rounded-full border-[1.5px] border-incoming"
+    />
+  );
+}
+
 // The chain as stored: it starts at a changed file, and each file after it
-// imports the one before.
+// imports the one before. Drawn as a rail so the direction reads at a glance.
 function Chain({ file }: { file: StoredAffectedFile }) {
   const [origin, ...rest] = file.dependencyPath;
   return (
-    <div className="border-t border-line bg-canvas/40 px-5 py-3 text-sm">
+    <div className="border-t border-line bg-canvas/40 px-5 py-4 text-sm">
       <p className="text-muted">Why it is here: a chain of imports that leads to a changed file.</p>
-      <ol className="mt-2 space-y-1 font-mono text-[0.8125rem] break-all">
-        <li>
-          <span className="mr-2 rounded bg-ink px-1.5 py-0.5 font-sans text-xs text-canvas">
-            changed
+      <ol className="mt-3 font-mono text-[0.8125rem] break-all">
+        <li className="relative flex items-start gap-3 pb-3">
+          <span aria-hidden="true" className="absolute top-3 bottom-0 left-[0.2rem] w-px bg-incoming/50" />
+          <span aria-hidden="true" className="mt-1.5 size-2 shrink-0 rotate-45 bg-accent" />
+          <span>
+            <span className="mr-2 rounded bg-accent px-1.5 py-0.5 font-sans text-xs text-accent-ink">
+              changed
+            </span>
+            {origin}
           </span>
-          {origin}
         </li>
-        {rest.map((step) => (
-          <li key={step} className="pl-4">
-            <span className="mr-2 font-sans text-muted">is imported by</span>
-            {step}
+        {rest.map((step, index) => (
+          <li key={step} className="relative flex items-start gap-3 pb-3 last:pb-0">
+            {index < rest.length - 1 && (
+              <span aria-hidden="true" className="absolute top-3 bottom-0 left-[0.2rem] w-px bg-incoming/50" />
+            )}
+            <span className="mt-1.5 flex">
+              <AffectedMark />
+            </span>
+            <span>
+              <span className="mr-2 font-sans text-muted">is imported by</span>
+              {step}
+            </span>
           </li>
         ))}
       </ol>
       {file.routeCount > 1 && (
-        <p className="mt-2 text-muted">
+        <p className="mt-3 text-muted">
           This is one shortest chain. {file.routeCount} files one step closer to the change are
           imported by this file, so there are other chains of the same length.
         </p>
@@ -185,12 +224,17 @@ function AffectedFiles({ files, total }: { files: StoredAffectedFile[]; total: n
                 : `${depth} imports away from a changed file`}
               <span className="ml-2 font-normal text-muted tabular-nums">{atDepth.length}</span>
             </h3>
-            <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+            <ul className="panel overflow-hidden">
               {atDepth.map((file) => (
                 <li key={file.path} className="border-t border-line first:border-t-0">
-                  <details>
-                    <summary className="cursor-pointer px-5 py-2.5 font-mono text-[0.8125rem] break-all hover:bg-canvas">
-                      {file.path}
+                  <details className="group">
+                    <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-2.5 font-mono text-[0.8125rem] break-all transition-colors duration-150 hover:bg-hover group-open:bg-hover [&::-webkit-details-marker]:hidden">
+                      <AffectedMark />
+                      <span className="min-w-0 flex-1">{file.path}</span>
+                      <span className="shrink-0 font-sans text-xs text-muted">
+                        <span className="group-open:hidden">Show chain</span>
+                        <span className="hidden group-open:inline">Hide chain</span>
+                      </span>
                     </summary>
                     <Chain file={file} />
                   </details>
@@ -211,6 +255,33 @@ function AffectedFiles({ files, total }: { files: StoredAffectedFile[]; total: n
   );
 }
 
+// The report's sections in reading order, kept in view under the top bar so
+// any part of a long report is one step away. Counts are the report's own.
+function ReportNav({ items }: { items: { href: string; label: ReactNode; count: number }[] }) {
+  return (
+    <nav
+      aria-label="Report sections"
+      className="sticky top-14 z-10 -mx-4 mt-6 border-b border-line bg-canvas/85 px-4 py-2 backdrop-blur-md sm:-mx-6 sm:px-6 md:-mx-10 md:px-10"
+    >
+      <ul className="-mx-1 flex gap-1 overflow-x-auto px-1 text-xs">
+        {items.map((item) => (
+          <li key={item.href} className="shrink-0">
+            <a
+              href={item.href}
+              className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-muted transition-colors duration-150 hover:bg-hover hover:text-ink"
+            >
+              {item.label}
+              <span className="rounded-full bg-hover px-1.5 font-mono text-[0.6875rem] text-ink tabular-nums">
+                {numberFormat.format(item.count)}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 export function ImpactReport({ run, report }: { run: AnalysisRun; report: StoredReport }) {
   const changedTotal = run.changedFileCount ?? report.changed.length;
   const affectedTotal = run.affectedFileCount ?? report.affected.length;
@@ -218,11 +289,12 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
 
   return (
     <>
-      <section className="mt-6 rounded-lg border border-line bg-surface">
-        <dl className="grid gap-x-10 gap-y-5 px-5 py-5 text-sm sm:grid-cols-[auto_1fr]">
+      <section aria-label="Summary" className="panel relative mt-6 overflow-hidden">
+        <div aria-hidden="true" className="panel-glow pointer-events-none absolute inset-0" />
+        <dl className="relative grid gap-x-10 gap-y-5 px-5 py-5 text-sm sm:grid-cols-[auto_1fr] sm:px-6">
           <div>
             <dt className="mb-1.5 text-xs text-muted">Risk label</dt>
-            <dd className="text-base">
+            <dd className="text-lg">
               {run.riskLevel ? <Risk level={run.riskLevel} /> : <InsufficientEvidence />}
             </dd>
           </div>
@@ -233,7 +305,31 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
             </dd>
           </div>
         </dl>
-        <p className="border-t border-line px-5 py-3 text-sm text-muted">
+        {/* What could not be established, up front rather than only at the
+            bottom of the page. */}
+        {(unanalysed.length > 0 || report.limitations.length > 0) && (
+          <p className="relative flex flex-wrap gap-2 border-t border-line px-5 py-3 text-xs sm:px-6">
+            {unanalysed.length > 0 && (
+              <a
+                href="#not-analysed"
+                className="rounded-full border border-caution/50 bg-caution/10 px-2.5 py-1 text-caution hover:underline"
+              >
+                {numberFormat.format(unanalysed.length)} changed{" "}
+                {unanalysed.length === 1 ? "file" : "files"} not analysed
+              </a>
+            )}
+            {report.limitations.length > 0 && (
+              <a
+                href="#coverage"
+                className="rounded-full border border-caution/50 bg-caution/10 px-2.5 py-1 text-caution hover:underline"
+              >
+                {numberFormat.format(report.limitations.length)}{" "}
+                {report.limitations.length === 1 ? "limitation" : "limitations"} recorded
+              </a>
+            )}
+          </p>
+        )}
+        <p className="relative border-t border-line px-5 py-3 text-sm text-muted sm:px-6">
           {run.riskLevel
             ? "The label is a way to decide what to look at first, worked out from the signals below by fixed rules. It is not a measured probability that anything breaks."
             : "No changed file could be matched to the graph, so there was nothing to measure and no label is given. That is not the same as low risk."}{" "}
@@ -242,7 +338,19 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
         </p>
       </section>
 
+      <ReportNav
+        items={[
+          { href: "#signals", label: "Risk signals", count: report.signals.length },
+          { href: "#changed", label: "Changed", count: changedTotal },
+          { href: "#affected", label: "Potentially affected", count: affectedTotal },
+          { href: "#not-analysed", label: "Not analysed", count: unanalysed.length },
+          { href: "#coverage", label: "Limitations", count: report.limitations.length },
+          { href: "#checks", label: "Suggested checks", count: report.recommendations.length },
+        ]}
+      />
+
       <Section
+        id="signals"
         title="Risk signals"
         note="Each signal is a rule that was triggered, with the measurements that triggered it."
       >
@@ -254,14 +362,15 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
         ) : (
           <ul className="space-y-3">
             {report.signals.map((signal) => (
-              <li key={signal.signal} className="rounded-lg border border-line bg-surface px-5 py-4 text-sm">
+              <li
+                key={signal.signal}
+                className={`panel border-l-2 px-5 py-4 text-sm ${levelBorder[signal.level]}`}
+              >
                 <p className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                   <span className="text-[0.9375rem] font-medium">
                     {isSignal(signal.signal) ? SIGNALS[signal.signal].label : signal.signal}
                   </span>
-                  <span className={`font-medium capitalize ${levelTone[signal.level]}`}>
-                    {signal.level}
-                  </span>
+                  <Risk level={signal.level} />
                 </p>
                 <ul className="mt-2 list-disc space-y-1 pl-5">
                   {signal.detail.facts.map((fact) => (
@@ -275,7 +384,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
             ))}
           </ul>
         )}
-        <details className="mt-3 rounded-lg border border-line px-5 py-3 text-sm">
+        <details className="mt-3 rounded-xl border border-line px-5 py-3 text-sm">
           <summary className="cursor-pointer font-medium">How the label is worked out</summary>
           <p className="mt-3 max-w-prose">{LEVEL_RULE}</p>
           <dl className="mt-3 space-y-3">
@@ -295,6 +404,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
       </Section>
 
       <Section
+        id="changed"
         title={`Changed files (${numberFormat.format(changedTotal)})`}
         note="The files in the pull request’s diff, as GitHub lists them."
       >
@@ -302,6 +412,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
       </Section>
 
       <Section
+        id="affected"
         title={`Potentially affected files (${numberFormat.format(affectedTotal)})`}
         note="Files that import a changed file, directly or through other files. Each is counted once, at its shortest distance. Open one to see the chain of imports that puts it here."
       >
@@ -309,13 +420,14 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
       </Section>
 
       <Section
+        id="not-analysed"
         title={`Not analysed (${numberFormat.format(unanalysed.length)})`}
         note="Changed files Impactlia could not place in the graph. Nothing is claimed about what depends on them."
       >
         {unanalysed.length === 0 ? (
           <Empty>Every changed file shown above is in the graph.</Empty>
         ) : (
-          <ul className="overflow-hidden rounded-lg border border-line bg-surface text-sm">
+          <ul className="panel overflow-hidden text-sm">
             {unanalysed.map((file) => (
               <li key={file.path} className="border-t border-line px-5 py-3 first:border-t-0">
                 <p className="font-mono text-[0.8125rem] break-all">{file.path}</p>
@@ -327,6 +439,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
       </Section>
 
       <Section
+        id="coverage"
         title="Coverage and limitations"
         note="What this analysis could not establish. A dependency that runs through one of these is missing from the report."
       >
@@ -351,6 +464,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
       </Section>
 
       <Section
+        id="checks"
         title="Suggested checks"
         note="Recommendations worked out from the report above. Impactlia has not run any of them and has collected no test results."
       >
@@ -361,9 +475,9 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
             {report.recommendations.map((recommendation, index) => (
               <li
                 key={recommendation.body}
-                className="flex gap-3 rounded-lg border border-line bg-surface px-5 py-4 text-sm"
+                className="panel flex gap-3 px-5 py-4 text-sm"
               >
-                <span className="grid size-6 shrink-0 place-items-center rounded-full border border-line font-mono text-xs text-muted">
+                <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-outgoing/50 bg-outgoing/10 font-mono text-xs text-outgoing">
                   {index + 1}
                 </span>
                 <div className="min-w-0">

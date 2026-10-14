@@ -121,7 +121,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // ── Reads ──────────────────────────────────────────────────────────────────
 
 // The dashboard shows the most recent runs, not the full history.
-const RUN_LIMIT = 50;
+export const RUN_LIMIT = 50;
 
 // Real analyses only. Rows under a seeded repository are development fixtures
 // and are never listed, counted or opened.

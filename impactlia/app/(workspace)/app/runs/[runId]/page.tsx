@@ -6,7 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { retryRun } from "@/lib/ingestion/actions";
 import { getRun } from "@/lib/ingestion/runs";
 import { STAGES, runTopic } from "@/lib/ingestion/stages";
-import { repositoryPath } from "@/lib/routes";
+import { WORKSPACE_PATH, repositoryPath } from "@/lib/routes";
 import { getWorkspace } from "@/lib/workspace";
 
 const dateTimeFormat = new Intl.DateTimeFormat("en-GB", {
@@ -100,8 +100,13 @@ async function Run({ params }: { params: Promise<{ runId: string }> }) {
 
 export default function RunPage({ params }: PageProps<"/app/runs/[runId]">) {
   return (
-    <div className="max-w-5xl">
-      <p className="mb-1 text-sm text-muted">Repository analysis</p>
+    <div className="enter mx-auto max-w-5xl">
+      <nav aria-label="Breadcrumb" className="mb-3 text-sm text-muted">
+        <Link href={WORKSPACE_PATH} className="hover:text-ink">
+          Overview
+        </Link>{" "}
+        <span aria-hidden="true">/</span> Repository analysis
+      </nav>
       <Suspense>
         <Run params={params} />
       </Suspense>

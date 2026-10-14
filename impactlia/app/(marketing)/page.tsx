@@ -1,269 +1,150 @@
 import { cacheLife } from "next/cache";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { FileMark, stateTone } from "@/components/landing/file-mark";
-import { ImpactMap } from "@/components/landing/impact-map";
+import { ChangeImpactScene } from "@/components/landing/change-impact-scene";
+import { DiffToImpact } from "@/components/landing/diff-to-impact";
 import { ReportPreview } from "@/components/landing/report-preview";
 import { RevealOnScroll } from "@/components/landing/reveal-on-scroll";
 import { SiteNav } from "@/components/landing/site-nav";
-import {
-  REVIEW_FOCUS,
-  affectedFiles,
-  changedFiles,
-  exampleFiles,
-  examplePullRequest,
-  stateLabel,
-  type FileState,
-} from "@/lib/landing/example";
+import { Walkthrough } from "@/components/landing/walkthrough";
+import { IMPACT_DEPTH } from "@/lib/impact/risk";
+import { exampleChecks } from "@/lib/landing/example-report";
 import { sectionLinks } from "@/lib/landing/sections";
 import { SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/routes";
 
 // The public page. It reads no session and no data, so it is fully
 // prerendered and looks the same whether or not anyone is signed in.
+//
+// Every product claim on it was checked against the code when it was
+// written: public GitHub repositories only, TypeScript and JavaScript, the
+// risk signals in lib/impact/risk.ts, and what the database keeps. Change the
+// copy when those change.
 
-const primaryButton =
-  "rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-accent-ink transition duration-150 hover:bg-accent/90 active:bg-accent/80 motion-safe:hover:-translate-y-px";
-const secondaryButton =
-  "rounded-md border border-line px-4 py-2.5 text-sm font-medium transition duration-150 hover:border-ink/40 active:bg-surface motion-safe:hover:-translate-y-px";
+function Eyebrow({ children }: { children: ReactNode }) {
+  return (
+    <p
+      data-reveal
+      className="text-xs font-semibold tracking-[0.16em] text-accent uppercase"
+    >
+      {children}
+    </p>
+  );
+}
+
+function SectionHeading({
+  id,
+  eyebrow,
+  children,
+  intro,
+  center = false,
+}: {
+  id: string;
+  eyebrow: string;
+  children: ReactNode;
+  intro?: ReactNode;
+  center?: boolean;
+}) {
+  return (
+    <div className={center ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <h2
+        id={`${id}-heading`}
+        data-reveal
+        data-reveal-delay="1"
+        className="mt-3 text-3xl leading-tight font-semibold tracking-tight text-balance md:text-[2.75rem]"
+      >
+        {children}
+      </h2>
+      {intro && (
+        <p data-reveal data-reveal-delay="2" className="mt-4 text-lg text-muted text-pretty">
+          {intro}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function Section({
   id,
-  heading,
-  intro,
   children,
+  tone = "plain",
 }: {
   id: string;
-  heading: string;
-  intro?: ReactNode;
   children: ReactNode;
+  tone?: "plain" | "lifted";
 }) {
   return (
     <section
       id={id}
       aria-labelledby={`${id}-heading`}
-      className="scroll-mt-14 border-t border-line"
+      className={`scroll-mt-16 ${tone === "lifted" ? "border-y border-line bg-surface/40" : ""}`}
     >
-      <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
-        <h2
-          id={`${id}-heading`}
-          data-reveal
-          className="max-w-2xl text-3xl font-semibold tracking-tight text-balance md:text-4xl"
-        >
-          {heading}
-        </h2>
-        {intro && (
-          <p data-reveal data-reveal-delay="1" className="mt-4 max-w-2xl text-lg text-muted">
-            {intro}
-          </p>
-        )}
-        <div className="mt-10 md:mt-12">{children}</div>
-      </div>
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 md:py-28">{children}</div>
     </section>
-  );
-}
-
-function ExampleTag({ children = "Example" }: { children?: ReactNode }) {
-  return (
-    <span className="rounded border border-dashed border-muted px-1.5 text-xs font-normal text-muted">
-      {children}
-    </span>
-  );
-}
-
-function Legend() {
-  const states: FileState[] = ["changed", "affected", "unreached"];
-  return (
-    <ul className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-      {states.map((state) => (
-        <li key={state} className="flex items-center gap-1.5">
-          <span className={stateTone[state]}>
-            <FileMark state={state} />
-          </span>
-          {stateLabel[state]}
-        </li>
-      ))}
-      <li className="flex items-center gap-1.5">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 20 8"
-          className="h-2 w-5 text-incoming"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        >
-          <path d="M0 4h18M14.5 1l3.5 3-3.5 3" />
-        </svg>
-        Is imported by
-      </li>
-    </ul>
-  );
-}
-
-function HeroVisual() {
-  const focus = exampleFiles.find((file) => file.id === REVIEW_FOCUS);
-  const summary = [
-    { label: "Changed files", value: changedFiles.length },
-    { label: "Potentially affected", value: affectedFiles.length },
-  ];
-
-  return (
-    <figure
-      data-reveal="sequence"
-      className="rounded-lg border border-line bg-surface sm:w-[522px]"
-    >
-      <div className="impact-step flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-3 text-sm sm:px-5">
-        <span className="font-mono text-[0.8125rem] text-muted">
-          PR #{examplePullRequest.number}
-        </span>
-        <span className="font-medium">{examplePullRequest.title}</span>
-        <span className="ml-auto">
-          <ExampleTag />
-        </span>
-      </div>
-
-      <p className="sr-only">
-        An example impact map. The Pull Request changes payment.ts and currency.ts.{" "}
-        {affectedFiles.length} other files import them, directly or through another file, and
-        are marked as potentially affected. One file, session.ts, is not reached.
-      </p>
-      <div className="px-2.5 pt-5 pb-3 sm:px-5">
-        <ImpactMap />
-      </div>
-
-      <dl
-        className="impact-step grid grid-cols-3 divide-x divide-line border-t border-line"
-        style={{ animationDelay: "2100ms" }}
-      >
-        {summary.map((item) => (
-          <div key={item.label} className="px-3 py-3 sm:px-5">
-            <dt className="text-xs text-muted">{item.label}</dt>
-            <dd className="mt-0.5 text-lg font-semibold tabular-nums">{item.value}</dd>
-          </div>
-        ))}
-        <div className="px-3 py-3 sm:px-5">
-          <dt className="text-xs text-muted">Review focus</dt>
-          <dd className="mt-1.5 font-mono text-[0.8125rem]">{focus?.name}</dd>
-        </div>
-      </dl>
-
-      <figcaption className="space-y-2 border-t border-line px-4 py-3 sm:px-5">
-        <Legend />
-        <p className="text-xs text-muted">
-          An illustration with made-up files, not an analysis of a real repository.
-        </p>
-      </figcaption>
-    </figure>
   );
 }
 
 function Hero() {
   return (
-    <section aria-labelledby="hero-heading">
-      <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-14 sm:px-6 md:py-20 lg:grid-cols-[minmax(0,1fr)_522px]">
-        <div>
-          <p className="impact-step text-xs font-medium tracking-[0.14em] text-muted uppercase">
-            Code change intelligence
+    <section aria-labelledby="hero-heading" className="relative overflow-hidden">
+      <div aria-hidden="true" className="landing-glow pointer-events-none absolute inset-0" />
+      <div aria-hidden="true" className="landing-grid pointer-events-none absolute inset-0" />
+      <div className="relative mx-auto max-w-7xl px-4 pt-14 pb-20 sm:px-6 md:pt-24 md:pb-28">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="impact-step inline-flex items-center gap-2 rounded-full border border-line bg-white/[0.03] px-3 py-1 text-xs text-muted">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-positive" />
+            Early access · Public GitHub repositories · TypeScript and JavaScript
           </p>
           <h1
             id="hero-heading"
-            className="impact-step mt-4 text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl"
+            className="impact-step mt-6 text-[2.5rem] leading-[1.04] font-semibold tracking-tight text-balance sm:text-6xl lg:text-7xl"
+            style={{ animationDelay: "60ms" }}
           >
-            Know what your code changes could affect.
+            Know what your code changes{" "}
+            <span className="text-spectrum">could affect.</span>
           </h1>
           <p
-            className="impact-step mt-5 max-w-xl text-lg text-muted"
-            style={{ animationDelay: "120ms" }}
+            className="impact-step mx-auto mt-6 max-w-2xl text-lg text-muted text-pretty"
+            style={{ animationDelay: "140ms" }}
           >
-            Impactlia maps the relationships inside your codebase to help you understand the
-            potential impact of a Pull Request, spot areas that deserve attention, and decide
-            what to review or test before you merge.
+            Understand the potential blast radius of a pull request. Trace the parts of your
+            codebase connected to it, review evidence-based risk signals, and see what may need
+            testing before you merge.
           </p>
           <div
-            className="impact-step mt-8 flex flex-wrap gap-3"
-            style={{ animationDelay: "300ms" }}
+            className="impact-step mt-9 flex flex-wrap justify-center gap-3"
+            style={{ animationDelay: "220ms" }}
           >
-            <Link href={SIGN_UP_PATH} className={primaryButton}>
+            <Link href={SIGN_UP_PATH} className="btn btn-primary">
               Get started
             </Link>
-            <a href="#how-it-works" className={secondaryButton}>
+            <a href="#how-it-works" className="btn btn-secondary">
               See how it works
             </a>
           </div>
-          <p
-            className="impact-step mt-6 max-w-xl text-sm text-muted"
-            style={{ animationDelay: "420ms" }}
-          >
-            In development. The first version is being built for TypeScript and JavaScript
-            repositories.
-          </p>
         </div>
-        <HeroVisual />
+
+        <div className="mt-14 md:mt-20">
+          <ChangeImpactScene />
+        </div>
       </div>
     </section>
   );
 }
 
-const diffLines = [
-  { file: "src/payments/payment.ts", added: 42, removed: 17 },
-  { file: "src/payments/currency.ts", added: 6, removed: 2 },
-];
-
-function Problem() {
-  return (
-    <Section
-      id="problem"
-      heading="A small change can reach much further than it looks."
-      intro="A Pull Request shows what was edited. It does not always show which other parts of the application rely on the code that changed."
-    >
-      <div
-        data-reveal="panel"
-        className="grid gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-2"
-      >
-        <div className="bg-surface p-5 sm:p-6">
-          <h3 className="flex items-center gap-3 font-semibold">
-            What a diff shows <ExampleTag />
-          </h3>
-          <p className="mt-1 text-sm text-muted">The files changed in the Pull Request.</p>
-          <ul className="mt-5 space-y-2 font-mono text-[0.8125rem]">
-            {diffLines.map((line) => (
-              <li key={line.file} className="flex flex-wrap items-center gap-x-2">
-                <span className="text-accent">
-                  <FileMark state="changed" />
-                </span>
-                <span className="break-all">{line.file}</span>
-                <span className="ml-auto tabular-nums">
-                  <span className="text-positive">+{line.added}</span>{" "}
-                  <span className="text-critical">−{line.removed}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="bg-surface p-5 sm:p-6">
-          <h3 className="font-semibold">What a developer still needs to know</h3>
-          <p className="mt-1 text-sm text-muted">What sits on the other side of those files.</p>
-          <ul className="mt-5 space-y-2 text-sm">
-            <li>Which other files or modules depend on them?</li>
-            <li>How far does the change reach?</li>
-            <li>What deserves additional review?</li>
-          </ul>
-        </div>
-      </div>
-    </Section>
-  );
-}
-
-// The same small graph three times, one stage further along each time.
+// The same small graph four times, one stage further along each time. Shape
+// marks the state as well as colour: a diamond is changed, a ring affected,
+// and a tick on a ring is a suggested check.
 const miniNodes = [
-  { x: 24, y: 26, stage: 2 },
-  { x: 24, y: 54, stage: 2 },
-  { x: 100, y: 12, stage: 3 },
-  { x: 100, y: 40, stage: 3 },
-  { x: 100, y: 68, stage: 3 },
-  { x: 176, y: 12, stage: 3 },
-  { x: 176, y: 40, stage: 3 },
-  { x: 176, y: 68, stage: 0 },
-];
+  { x: 24, y: 26, kind: "changed" },
+  { x: 24, y: 54, kind: "changed" },
+  { x: 100, y: 12, kind: "affected" },
+  { x: 100, y: 40, kind: "affected" },
+  { x: 100, y: 68, kind: "affected" },
+  { x: 176, y: 12, kind: "affected" },
+  { x: 176, y: 40, kind: "affected" },
+  { x: 176, y: 68, kind: "unreached" },
+] as const;
 const miniEdges = [
   [0, 2],
   [0, 3],
@@ -272,21 +153,23 @@ const miniEdges = [
   [2, 5],
   [3, 6],
 ];
+const CHECKED = new Set([3, 2]);
 
-function MiniGraph({ stage }: { stage: 1 | 2 | 3 }) {
+function MiniGraph({ stage }: { stage: 1 | 2 | 3 | 4 }) {
   return (
     <svg aria-hidden="true" viewBox="0 0 200 80" className="h-20 w-[200px] max-w-full" fill="none">
       {miniEdges.map(([from, to]) => (
         <path
           key={`${from}-${to}`}
           d={`M${miniNodes[from].x} ${miniNodes[from].y}L${miniNodes[to].x} ${miniNodes[to].y}`}
-          stroke={stage === 3 ? "var(--incoming)" : "var(--edge)"}
+          stroke={stage >= 3 ? "var(--incoming)" : "var(--edge)"}
+          strokeOpacity={stage >= 3 ? 0.7 : 1}
           strokeWidth="1.25"
         />
       ))}
-      {miniNodes.map((node) => {
+      {miniNodes.map((node, index) => {
         const key = `${node.x}-${node.y}`;
-        if (node.stage === 2 && stage >= 2) {
+        if (node.kind === "changed" && stage >= 2) {
           return (
             <rect
               key={key}
@@ -299,81 +182,91 @@ function MiniGraph({ stage }: { stage: 1 | 2 | 3 }) {
             />
           );
         }
-        const reached = node.stage === 3 && stage === 3;
+        const reached = node.kind === "affected" && stage >= 3;
+        const checked = stage === 4 && CHECKED.has(index);
         return (
-          <circle
-            key={key}
-            cx={node.x}
-            cy={node.y}
-            r="5"
-            fill="var(--surface)"
-            stroke={reached ? "var(--incoming)" : "var(--edge)"}
-            strokeWidth={reached ? 2 : 1.25}
-          />
+          <g key={key}>
+            <circle
+              cx={node.x}
+              cy={node.y}
+              r={checked ? 7 : 5}
+              fill={checked ? "var(--outgoing)" : "var(--surface)"}
+              stroke={checked ? "var(--outgoing)" : reached ? "var(--incoming)" : "var(--edge)"}
+              strokeWidth={reached ? 2 : 1.25}
+            />
+            {checked && (
+              <path
+                d={`M${node.x - 3} ${node.y}l2 2 4-4`}
+                stroke="var(--accent-ink)"
+                strokeWidth="1.5"
+              />
+            )}
+          </g>
         );
       })}
     </svg>
   );
 }
 
-const steps: { title: string; text: string; stage: 1 | 2 | 3 }[] = [
+const steps: { title: string; text: string; stage: 1 | 2 | 3 | 4 }[] = [
   {
     title: "Connect a repository",
-    text: "Impactlia starts with the structure of a supported codebase and its real dependency relationships.",
+    text: "Add a public GitHub repository by its URL. Impactlia maps the imports between its TypeScript and JavaScript files.",
     stage: 1,
   },
   {
-    title: "Inspect a Pull Request",
-    text: "The analysis begins with the files changed by a PR and traces their relationships through the repository.",
+    title: "Select a pull request",
+    text: "Pick one of its pull requests, or enter any number. The analysis starts from the files it changes.",
     stage: 2,
   },
   {
-    title: "Understand the potential impact",
-    text: "Review the affected areas, the reasons they matter, and the parts of the change that may deserve more testing or attention.",
+    title: "Trace potential impact",
+    text: `From each changed file, the import graph is followed outwards, up to ${IMPACT_DEPTH} steps, to find the files that may be affected.`,
     stage: 3,
+  },
+  {
+    title: "Review what to validate",
+    text: "Read the signals behind the risk level, the path to each affected file, and the suggested checks.",
+    stage: 4,
   },
 ];
 
 function HowItWorks() {
   return (
-    <Section
-      id="how-it-works"
-      heading="From Pull Request to a clearer picture."
-      intro="This is the workflow Impactlia is being built around. It is in development, so there is nothing to run from this page yet."
-    >
-      <ol className="grid md:grid-cols-3 md:gap-8">
+    <Section id="how-it-works">
+      <SectionHeading
+        id="how-it-works"
+        eyebrow="How it works"
+        intro="Four steps from a pull request to a report you can act on."
+      >
+        From pull request to a clearer picture.
+      </SectionHeading>
+      <ol className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {steps.map((step, index) => {
           const last = index === steps.length - 1;
           return (
             <li
               key={step.title}
               data-reveal
-              data-reveal-delay={index * 3}
-              className="group relative pb-10 pl-11 last:pb-0 md:p-0"
+              data-reveal-delay={index * 2}
+              className="panel lift relative p-5"
             >
-              {/* The line that joins one step to the next: down the side on
-                  small screens, across the top on wide ones. */}
-              {!last && (
-                <span
-                  aria-hidden="true"
-                  className="absolute top-8 bottom-0 left-3.5 w-px bg-line md:hidden"
-                />
-              )}
               <div className="flex items-center gap-3">
-                <span className="absolute left-0 flex size-7 items-center justify-center rounded-full border border-line bg-surface text-sm font-medium tabular-nums transition-colors duration-200 group-hover:border-ink/40 md:static">
-                  {index + 1}
+                <span className="flex size-9 items-center justify-center rounded-full border border-accent/50 bg-accent/10 font-mono text-sm text-accent tabular-nums">
+                  {String(index + 1).padStart(2, "0")}
                 </span>
+                {/* The line on to the next step, drawn as it scrolls in. */}
                 {!last && (
                   <span
                     aria-hidden="true"
                     data-reveal="wipe"
-                    data-reveal-delay={index * 3 + 2}
-                    className="hidden flex-1 items-center text-edge md:flex"
+                    data-reveal-delay={index * 2 + 1}
+                    className="hidden flex-1 items-center text-edge lg:flex"
                   >
-                    <span className="h-px flex-1 bg-current" />
+                    <span className="h-px flex-1 bg-linear-to-r from-accent/60 to-incoming/60" />
                     <svg
                       viewBox="0 0 6 8"
-                      className="-ml-1.5 h-2 w-1.5"
+                      className="-ml-1 h-2 w-1.5 text-incoming/70"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="1.25"
@@ -383,11 +276,11 @@ function HowItWorks() {
                   </span>
                 )}
               </div>
-              <div className="md:mt-5">
+              <div className="mt-5">
                 <MiniGraph stage={step.stage} />
               </div>
               <h3 className="mt-4 font-semibold">{step.title}</h3>
-              <p className="mt-1.5 max-w-sm text-sm text-muted">{step.text}</p>
+              <p className="mt-1.5 text-sm text-muted">{step.text}</p>
             </li>
           );
         })}
@@ -396,151 +289,239 @@ function HowItWorks() {
   );
 }
 
-function ProductPreview() {
+function StoryPoint({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Section
-      id="preview"
-      heading="See beyond the changed files."
-      intro="When a Pull Request changes a file, the files that use it can be affected too. An impact report lists both, and shows how each one is connected to the change."
-    >
-      <div data-reveal="panel">
+    <li data-reveal className="border-l-2 border-line pl-4 transition-colors duration-200 hover:border-accent">
+      <h3 className="font-semibold">{title}</h3>
+      <p className="mt-1 text-sm text-muted">{children}</p>
+    </li>
+  );
+}
+
+function DiffStory() {
+  return (
+    <Section id="product" tone="lifted">
+      <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16">
+        <div>
+          <SectionHeading
+            id="product"
+            eyebrow="From diff to blast radius"
+            intro="A pull request shows what was edited. It does not show which other parts of the codebase rely on that code. Impactlia follows the imports to find them."
+          >
+            A changed file is only the beginning.
+          </SectionHeading>
+          <ul className="mt-8 space-y-5">
+            <StoryPoint title="Changed is not the same as affected.">
+              The files a pull request edits are marked as changed. Files that import them are
+              potentially affected: worth a look, not evidence of a bug.
+            </StoryPoint>
+            <StoryPoint title="Every connection has a path.">
+              A file is on the list only with the chain of imports that reaches it, so you can
+              see why it is there.
+            </StoryPoint>
+          </ul>
+          <dl
+            data-reveal
+            className="mt-8 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2"
+          >
+            <div className="bg-canvas p-4">
+              <dt className="text-xs text-muted">Code review asks</dt>
+              <dd className="mt-1">“What might be wrong with this code?”</dd>
+            </div>
+            <div className="bg-surface p-4">
+              <dt className="text-xs text-muted">Impactlia asks</dt>
+              <dd className="mt-1 font-semibold">“What could this change affect?”</dd>
+            </div>
+          </dl>
+        </div>
+        <div data-reveal="panel">
+          <DiffToImpact />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function RiskStory() {
+  return (
+    <Section id="risk">
+      <SectionHeading
+        id="risk"
+        eyebrow="Explainable risk"
+        intro="A risk level on its own tells you nothing. Each one in Impactlia comes with the signals that produced it, the rule each signal follows, and what the analysis could not check."
+      >
+        See why an area deserves a closer look.
+      </SectionHeading>
+      <div data-reveal="panel" className="mt-12">
         <ReportPreview />
       </div>
       <p data-reveal className="mt-3 text-sm text-muted">
-        This is a drawing of the report, using the same made-up Pull Request as above. It is
-        not output from a real repository.
+        A drawing of the report for the same made-up pull request. The signal names and
+        thresholds are the product’s real ones.
       </p>
     </Section>
   );
 }
 
-const valuePoints = [
-  {
-    title: "See the reach of a change.",
-    text: "Trace direct and indirect relationships across the codebase.",
-  },
-  {
-    title: "Understand why an area matters.",
-    text: "Make the relationship between a changed file and a potentially affected file visible.",
-  },
-  {
-    title: "Know where to look next.",
-    text: "Use the analysis to guide review and validation, not to replace engineering judgement.",
-  },
-];
-
-function WhyImpactlia() {
+function ValidationStory() {
   return (
-    <Section id="why-impactlia" heading="Not just what changed. What it could affect.">
-      <ul className="grid gap-8 md:grid-cols-3">
-        {valuePoints.map((point, index) => (
-          <li key={point.title} data-reveal data-reveal-delay={index}>
-            <h3 className="font-semibold">{point.title}</h3>
-            <p className="mt-1.5 text-muted">{point.text}</p>
-          </li>
-        ))}
-      </ul>
-      <dl
-        data-reveal="panel"
-        className="mt-12 grid gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-2"
-      >
-        <div className="bg-canvas p-5 sm:p-6">
-          <dt className="text-sm text-muted">General code review asks</dt>
-          <dd className="mt-2 text-xl">“What might be wrong with this code?”</dd>
+    <Section id="validation" tone="lifted">
+      <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+        <div data-reveal="panel" className="order-last lg:order-first">
+          <div className="panel overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-line px-5 py-3 text-xs text-muted">
+              <span className="font-medium tracking-wide uppercase">Suggested checks</span>
+              <span className="ml-auto rounded-full border border-dashed border-muted/60 px-2 py-0.5">
+                Illustrative example
+              </span>
+            </div>
+            <ol className="divide-y divide-line">
+              {exampleChecks.map((check, index) => (
+                <li
+                  key={check.file}
+                  data-reveal
+                  data-reveal-delay={index + 1}
+                  className="flex gap-4 px-5 py-4 transition-colors duration-150 hover:bg-white/[0.03]"
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-outgoing/50 bg-outgoing/10 font-mono text-xs text-outgoing tabular-nums">
+                    {index + 1}
+                  </span>
+                  <div className="text-sm">
+                    <p>{check.body}</p>
+                    <p className="mt-1 text-xs text-muted">
+                      <span className="text-ink/80">Because:</span> {check.reason}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <p className="border-t border-line px-5 py-3 text-xs text-muted">
+              A starting point for review. Not a test result, and not a guarantee.
+            </p>
+          </div>
         </div>
-        <div className="bg-surface p-5 sm:p-6">
-          <dt className="text-sm text-muted">Impactlia asks</dt>
-          <dd className="mt-2 text-xl font-semibold">“What could this change affect?”</dd>
+        <div>
+          <SectionHeading
+            id="validation"
+            eyebrow="From findings to validation"
+            intro="Impact findings help you decide what to open, read and test before you merge. They guide your judgement; they do not replace it."
+          >
+            Know where to focus your review.
+          </SectionHeading>
+          <ul className="mt-8 space-y-5">
+            <StoryPoint title="Each check names its reason.">
+              A suggested check points at a file and the computed fact behind it, such as which
+              changed files it imports.
+            </StoryPoint>
+            <StoryPoint title="Facts first, AI second.">
+              Files, imports, signals and checks come from analysis, not from a model. In the
+              repository explorer you can ask an AI model to explain a file or folder. Its
+              answer is labelled as interpretation, and it cannot add or change dependencies.
+            </StoryPoint>
+          </ul>
         </div>
-      </dl>
+      </div>
     </Section>
   );
 }
 
-const principles = [
+function WalkthroughSection() {
+  return (
+    <Section id="walkthrough">
+      <SectionHeading
+        id="walkthrough"
+        eyebrow="Walkthrough"
+        center
+        intro="Step through one analysis. Each stage shows where its information comes from."
+      >
+        One pull request, start to finish.
+      </SectionHeading>
+      <div data-reveal="panel" className="mx-auto mt-12 max-w-5xl">
+        <Walkthrough />
+      </div>
+    </Section>
+  );
+}
+
+const trustFacts = [
   {
-    title: "Real code relationships",
-    text: "Connections are read from the imports in your repository, not guessed.",
+    title: "Public repositories only",
+    text: "Impactlia reads public GitHub repositories through GitHub’s public API, without a token. It does not ask you to sign in with GitHub or grant repository permissions, and it cannot see private repositories.",
   },
   {
-    title: "Traceable impact paths",
-    text: "A file is listed as potentially affected only with the path that leads to it.",
+    title: "Source is read, then deleted",
+    text: "To build the dependency map, the repository archive is unpacked into a temporary folder. Only source and JSON files are written out, nothing in the repository is run, and the folder is deleted when the run ends.",
   },
   {
-    title: "Explainable signals",
-    text: "An attention level comes with the signals it is based on.",
+    title: "What is kept",
+    text: "The dependency map, meaning file paths and which file imports which, and pull request details such as its title, author and changed file paths. Impactlia’s database does not store your files’ contents or the text of the diff.",
   },
   {
-    title: "Visible analysis limitations",
-    text: "An import that cannot be resolved is reported, not quietly dropped.",
+    title: "Your organization only",
+    text: "Every repository and analysis belongs to one organization. Database access policies, not only application code, decide who can read it.",
   },
 ];
 
-function Evidence() {
+function Trust() {
   return (
-    <Section
-      id="evidence"
-      heading="Useful analysis starts with real code relationships."
-      intro="Impactlia uses code structure and dependency relationships as the foundation for its analysis. Explanations and recommendations are grounded in that evidence. When a relationship cannot be resolved, the product says so instead of pretending to know."
-    >
-      <dl className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-4">
-        {principles.map((principle, index) => (
-          <div
-            key={principle.title}
+    <Section id="trust" tone="lifted">
+      <SectionHeading
+        id="trust"
+        eyebrow="Trust"
+        intro="Repository access is sensitive, so this is exactly what Impactlia reads and keeps today."
+      >
+        Built to read only what it needs.
+      </SectionHeading>
+      <ul className="mt-12 grid gap-4 sm:grid-cols-2">
+        {trustFacts.map((fact, index) => (
+          <li
+            key={fact.title}
             data-reveal
             data-reveal-delay={index}
-            className="border-t border-line py-5 transition-colors duration-200 hover:border-ink/40"
+            className="panel lift p-6"
           >
-            <dt className="font-semibold">{principle.title}</dt>
-            <dd className="mt-1.5 text-sm text-muted">{principle.text}</dd>
-          </div>
+            <h3 className="font-semibold">{fact.title}</h3>
+            <p className="mt-2 text-sm text-muted">{fact.text}</p>
+          </li>
         ))}
-      </dl>
-      <p data-reveal className="mt-6 max-w-2xl text-sm text-muted">
-        The scope today is TypeScript and JavaScript. Some relationships cannot be read from
-        source code, such as an import path that is built at runtime. Those are shown as
-        unresolved, and what lies behind them is not counted.
+      </ul>
+      <p data-reveal className="mt-6 max-w-3xl text-sm text-muted">
+        One exception: when you ask for an AI explanation of a file, that file’s source and its
+        listed dependencies are sent to an AI model provider to write the answer, and the request
+        is recorded in a trace. Nothing is sent unless you ask.
       </p>
     </Section>
   );
 }
 
-const audiences = [
-  {
-    title: "Developers in unfamiliar or complex codebases",
-    text: "See what depends on a file before you change it, without tracing every import by hand.",
-  },
-  {
-    title: "Teams shipping changes frequently",
-    text: "Give each Pull Request a quick answer to how far it reaches.",
-  },
-  {
-    title: "Teams using AI-assisted coding tools",
-    text: "When code is written faster, knowing what each change touches is worth more.",
-  },
-  {
-    title: "Engineering leads",
-    text: "Point review time at the areas a change could actually reach.",
-  },
-];
-
-function Audience() {
+function EarlyAccess() {
   return (
-    <Section id="who-it-is-for" heading="Built for teams moving quickly through code.">
-      <ul className="grid gap-x-8 sm:grid-cols-2">
-        {audiences.map((audience, index) => (
-          <li
-            key={audience.title}
-            data-reveal
-            data-reveal-delay={index % 2}
-            className="border-t border-line py-5 transition-colors duration-200 hover:border-ink/40"
-          >
-            <h3 className="font-semibold">{audience.title}</h3>
-            <p className="mt-1.5 text-sm text-muted">{audience.text}</p>
-          </li>
-        ))}
-      </ul>
-    </Section>
+    <section aria-labelledby="early-access-heading">
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 md:py-28">
+        <div
+          data-reveal="panel"
+          className="panel grid items-center gap-8 p-6 sm:p-10 md:grid-cols-[minmax(0,1fr)_auto]"
+        >
+          <div className="max-w-2xl">
+            <Eyebrow>Early access</Eyebrow>
+            <h2
+              id="early-access-heading"
+              className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl"
+            >
+              Early access. Real feedback matters.
+            </h2>
+            <p className="mt-3 text-muted">
+              We’re building Impactlia to make change-impact analysis useful in everyday
+              engineering work. Try it on a public repository and tell us what helps, what is
+              confusing, and what you would want next.
+            </p>
+          </div>
+          <Link href={SIGN_UP_PATH} className="btn btn-secondary justify-self-start">
+            Try Impactlia
+          </Link>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -548,57 +529,62 @@ const questions = [
   {
     question: "Is Impactlia another AI code reviewer?",
     answer:
-      "No. Impactlia focuses on understanding the potential impact of a change across the codebase. It is designed to complement code review, not duplicate it.",
+      "No. It does not judge whether code is correct. It shows what a change could affect across the codebase, so review and testing go where they are needed. It complements code review rather than duplicating it.",
   },
   {
-    question: "How does Impactlia understand what a change could affect?",
+    question: "How does Impactlia work out what a change could affect?",
     answer:
-      "It uses repository structure and dependency relationships to trace how changed files connect to other parts of the codebase. The quality of the result depends on what the analysis can resolve.",
+      "It parses the repository’s imports into a dependency graph, then follows that graph outwards from the files the pull request changes. The result is only as complete as the imports it can resolve, and the report says which ones it could not.",
   },
   {
     question: "Does Impactlia guarantee a change will not break production?",
     answer:
-      "No. It helps teams understand potential impact and identify areas for review or testing. It cannot guarantee that a change is safe.",
+      "No. It helps you understand potential impact and choose what to review or test. It cannot prove that a change is safe.",
   },
   {
-    question: "Which languages does it support?",
+    question: "Which languages and repositories does it support?",
     answer:
-      "TypeScript and JavaScript. Other languages are not supported yet, and there is no date for them.",
+      "TypeScript and JavaScript, including CommonJS, with extra understanding of Next.js, React, Express and NestJS files. Only public GitHub repositories for now; private repositories are not supported yet.",
   },
   {
     question: "Can I use it today?",
     answer:
-      "Partly. Impactlia is still being built. Today you can create an account and set up a workspace for your team. Connecting a repository and analysing a Pull Request are not available yet.",
+      "Yes, in early access. Create an account, add a public GitHub repository by its URL, and analyse its pull requests.",
   },
 ];
 
 function Faq() {
   return (
-    <Section id="faq" heading="Questions">
-      <div className="max-w-3xl border-b border-line">
-        {questions.map((item, index) => (
-          <details
-            key={item.question}
-            data-reveal
-            data-reveal-delay={index}
-            className="faq-item group border-t border-line"
-          >
-            <summary className="flex cursor-pointer list-none items-center gap-4 py-4 font-medium transition-colors duration-150 hover:text-accent [&::-webkit-details-marker]:hidden">
-              {item.question}
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 10 10"
-                className="ml-auto size-2.5 shrink-0 text-muted transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              >
-                <path d="M3 1l4 4-4 4" />
-              </svg>
-            </summary>
-            <p className="max-w-2xl pb-5 text-muted">{item.answer}</p>
-          </details>
-        ))}
+    <Section id="faq">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
+        <SectionHeading id="faq" eyebrow="FAQ">
+          Questions
+        </SectionHeading>
+        <div className="border-b border-line">
+          {questions.map((item, index) => (
+            <details
+              key={item.question}
+              data-reveal
+              data-reveal-delay={index}
+              className="faq-item group border-t border-line"
+            >
+              <summary className="flex cursor-pointer list-none items-center gap-4 py-5 font-medium transition-colors duration-150 hover:text-accent [&::-webkit-details-marker]:hidden">
+                {item.question}
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 10 10"
+                  className="ml-auto size-2.5 shrink-0 text-muted transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <path d="M3 1l4 4-4 4" />
+                </svg>
+              </summary>
+              <p className="max-w-2xl pb-5 text-muted">{item.answer}</p>
+            </details>
+          ))}
+        </div>
       </div>
     </Section>
   );
@@ -606,26 +592,27 @@ function Faq() {
 
 function FinalCta() {
   return (
-    <section aria-labelledby="cta-heading" className="border-t border-line bg-surface">
-      <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
+    <section aria-labelledby="cta-heading" className="relative overflow-hidden border-t border-line">
+      <div aria-hidden="true" className="landing-glow pointer-events-none absolute inset-0 rotate-180" />
+      <div className="relative mx-auto max-w-3xl px-4 py-24 text-center sm:px-6 md:py-32">
         <h2
           id="cta-heading"
           data-reveal
-          className="max-w-2xl text-3xl font-semibold tracking-tight text-balance md:text-4xl"
+          className="text-3xl leading-tight font-semibold tracking-tight text-balance md:text-5xl"
         >
-          Understand the change before it ships.
+          See what your next pull request <span className="text-spectrum">could reach.</span>
         </h2>
-        <p data-reveal data-reveal-delay="1" className="mt-4 max-w-2xl text-lg text-muted">
-          Make the potential reach of a Pull Request easier to see, explain, and review.
+        <p data-reveal data-reveal-delay="1" className="mt-5 text-lg text-muted">
+          Trace the change, read the evidence, and decide what to check before you merge.
         </p>
-        <Link
-          href={SIGN_UP_PATH}
-          data-reveal
-          data-reveal-delay="2"
-          className={`mt-8 inline-block ${primaryButton}`}
-        >
-          Get started
-        </Link>
+        <div data-reveal data-reveal-delay="2" className="mt-9 flex flex-wrap justify-center gap-3">
+          <Link href={SIGN_UP_PATH} className="btn btn-primary">
+            Get started
+          </Link>
+          <Link href={SIGN_IN_PATH} className="btn btn-secondary">
+            Sign in
+          </Link>
+        </div>
       </div>
     </section>
   );
@@ -642,10 +629,10 @@ async function CopyrightYear() {
 function Footer() {
   return (
     <footer className="border-t border-line">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-start justify-between gap-8 px-4 py-10 text-sm sm:px-6">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-start justify-between gap-8 px-4 py-10 text-sm sm:px-6">
         <div>
           <p className="text-base font-semibold tracking-tight">Impactlia</p>
-          <p className="mt-1 text-muted">Code change intelligence for engineering teams.</p>
+          <p className="mt-1 text-muted">Know what your code changes could affect.</p>
           <p className="mt-6 text-xs text-muted">
             © <CopyrightYear /> Impactlia
           </p>
@@ -673,21 +660,22 @@ function Footer() {
 
 export default function LandingPage() {
   return (
-    <>
+    <div className="landing min-h-screen">
       <RevealOnScroll />
       <SiteNav />
       <main>
         <Hero />
-        <Problem />
         <HowItWorks />
-        <ProductPreview />
-        <WhyImpactlia />
-        <Evidence />
-        <Audience />
+        <DiffStory />
+        <RiskStory />
+        <ValidationStory />
+        <WalkthroughSection />
+        <Trust />
+        <EarlyAccess />
         <Faq />
         <FinalCta />
       </main>
       <Footer />
-    </>
+    </div>
   );
 }

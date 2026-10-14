@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { FileMark, stateTone } from "@/components/landing/file-mark";
 import {
+  MAP_STEP_MS as STEP_MS,
   connectedTo,
   exampleEdges,
   exampleFiles,
@@ -27,7 +28,6 @@ type Layout = {
 };
 
 const NODE_HEIGHT = 34;
-const STEP_MS = 300;
 
 const wide: Layout = {
   width: 480,
@@ -102,6 +102,7 @@ const stepOf = new Map(exampleFiles.map((file) => [file.id, fileStep(file)]));
 function Canvas({
   layout,
   className,
+  startMs,
   lit,
   shownId,
   pinned,
@@ -111,6 +112,7 @@ function Canvas({
 }: {
   layout: Layout;
   className: string;
+  startMs: number;
   lit: ReadonlySet<string> | null;
   shownId: string | null;
   pinned: string | null;
@@ -162,7 +164,7 @@ function Canvas({
               markerEnd={`url(#${arrow})`}
               className="impact-edge transition-[opacity,stroke-width] duration-150"
               style={{
-                animationDelay: `${((stepOf.get(edge.target) ?? 0) + 1) * STEP_MS}ms`,
+                animationDelay: `${startMs + ((stepOf.get(edge.target) ?? 0) + 1) * STEP_MS}ms`,
                 opacity: dimmed ? 0.15 : undefined,
                 strokeWidth: onPath ? 2 : 1.5,
               }}
@@ -174,7 +176,7 @@ function Canvas({
           className="impact-step text-line"
           stroke="currentColor"
           strokeDasharray="3 4"
-          style={{ animationDelay: `${6 * STEP_MS}ms` }}
+          style={{ animationDelay: `${startMs + 6 * STEP_MS}ms` }}
         />
       </svg>
 
@@ -189,7 +191,7 @@ function Canvas({
       ))}
       <span
         className="impact-step absolute left-0 text-xs text-muted"
-        style={{ top: layout.dividerY + 8, animationDelay: `${6 * STEP_MS}ms` }}
+        style={{ top: layout.dividerY + 8, animationDelay: `${startMs + 6 * STEP_MS}ms` }}
       >
         Not reached from this change
       </span>
@@ -227,7 +229,7 @@ function Canvas({
               top: position.y,
               width: layout.nodeWidth,
               height: NODE_HEIGHT,
-              animationDelay: `${(stepOf.get(file.id) ?? 0) * STEP_MS}ms`,
+              animationDelay: `${startMs + (stepOf.get(file.id) ?? 0) * STEP_MS}ms`,
             }}
           >
             <FileMark state={file.state} />
@@ -239,7 +241,9 @@ function Canvas({
   );
 }
 
-export function ImpactMap() {
+// startMs holds the whole sequence back, for a map that is one step in a
+// longer story.
+export function ImpactMap({ startMs = 0 }: { startMs?: number }) {
   // Pointing at or focusing a file previews it; clicking keeps it.
   const [preview, setPreview] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
@@ -252,6 +256,7 @@ export function ImpactMap() {
     setPinned(null);
   };
   const canvas = {
+    startMs,
     lit,
     shownId,
     pinned,
