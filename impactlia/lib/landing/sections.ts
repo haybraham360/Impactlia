@@ -2,6 +2,7 @@
 // landing page's sections.
 export const sectionLinks = [
   { href: "#how-it-works", label: "How it works" },
-  { href: "#why-impactlia", label: "Why Impactlia" },
+  { href: "#product", label: "Product" },
+  { href: "#trust", label: "Trust" },
   { href: "#faq", label: "FAQ" },
 ];

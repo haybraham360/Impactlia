@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { StatePill, runStateOf } from "@/components/analysis-run-list";
 import { ReanalyzeForm } from "@/components/analyze-forms";
+import { PullRequestIcon } from "@/components/icons";
 import { ImpactReport } from "@/components/impact-report";
 import { RunProgress } from "@/components/run-progress";
 import { findPullRequest, type PullRequest } from "@/lib/github/pull-request";
@@ -96,12 +97,12 @@ async function Report({ run }: { run: AnalysisRun }) {
       {report.otherRuns.length > 0 && (
         <section className="mt-10">
           <h2 className="text-lg font-semibold">Other analyses of this pull request</h2>
-          <ul className="mt-4 overflow-hidden rounded-lg border border-line bg-surface text-sm">
+          <ul className="panel mt-4 overflow-hidden text-sm">
             {report.otherRuns.map((other) => (
               <li key={other.id} className="border-t border-line first:border-t-0">
                 <Link
                   href={analysisPath(other.id)}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 hover:bg-canvas"
+                  className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 transition-colors duration-150 hover:bg-hover"
                 >
                   <span className="capitalize">{other.status}</span>
                   <span className="text-muted">
@@ -131,46 +132,51 @@ async function Analysis({ params }: { params: Promise<{ analysisId: string }> })
 
   return (
     <>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <h1 className="max-w-3xl text-2xl font-semibold tracking-tight">{run.pullRequest.title}</h1>
-        <StatePill state={runStateOf(run)} />
-      </div>
-      <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-1 text-sm">
-        <Fact label="Pull request">
-          <a href={pullRequestUrl} className="font-mono text-[0.8125rem] leading-5 break-all hover:underline">
-            {run.repository.owner}/{run.repository.name}#{run.pullRequest.number}
-          </a>
-        </Fact>
-        <Fact label="Author">{run.pullRequest.authorLogin}</Fact>
-        <Fact label="Branches">
-          <span className="font-mono text-[0.8125rem] leading-5 break-all">
-            {run.pullRequest.baseRef} ← {run.pullRequest.headRef}
-          </span>
-        </Fact>
-      </dl>
-      <dl className="mt-1 flex flex-wrap gap-x-8 gap-y-1 text-sm">
-        <Fact label="Head commit analysed">
-          <Commit run={run} sha={run.headSha} />
-        </Fact>
-        {run.baseSha && (
-          <Fact label="Base commit">
-            <Commit run={run} sha={run.baseSha} />
+      <header className="panel px-5 py-5 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <h1 className="flex max-w-3xl items-start gap-3 text-xl font-semibold tracking-tight sm:text-2xl">
+            <PullRequestIcon className="mt-1.5 size-5 text-accent" />
+            {run.pullRequest.title}
+          </h1>
+          <StatePill state={runStateOf(run)} />
+        </div>
+        <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-1 text-sm">
+          <Fact label="Pull request">
+            <a href={pullRequestUrl} className="font-mono text-[0.8125rem] leading-5 break-all hover:underline">
+              {run.repository.owner}/{run.repository.name}#{run.pullRequest.number}
+            </a>
           </Fact>
-        )}
-      </dl>
-      <dl className="mt-1 flex flex-wrap gap-x-8 gap-y-1 text-sm">
-        <Fact label="Requested">
-          <When at={run.createdAt} />
-        </Fact>
-        {run.completedAt && (
-          <Fact label={run.status === "failed" ? "Failed" : "Completed"}>
-            <When at={run.completedAt} />
+          <Fact label="Author">{run.pullRequest.authorLogin}</Fact>
+          <Fact label="Branches">
+            <span className="font-mono text-[0.8125rem] leading-5 break-all">
+              {run.pullRequest.baseRef} ← {run.pullRequest.headRef}
+            </span>
           </Fact>
-        )}
-        <Fact label="Analysis">
-          <span className="font-mono text-[0.8125rem] leading-5 break-all">{run.id}</span>
-        </Fact>
-      </dl>
+        </dl>
+        <dl className="mt-1 flex flex-wrap gap-x-8 gap-y-1 text-sm">
+          <Fact label="Head commit analysed">
+            <Commit run={run} sha={run.headSha} />
+          </Fact>
+          {run.baseSha && (
+            <Fact label="Base commit">
+              <Commit run={run} sha={run.baseSha} />
+            </Fact>
+          )}
+        </dl>
+        <dl className="mt-1 flex flex-wrap gap-x-8 gap-y-1 text-sm">
+          <Fact label="Requested">
+            <When at={run.createdAt} />
+          </Fact>
+          {run.completedAt && (
+            <Fact label={run.status === "failed" ? "Failed" : "Completed"}>
+              <When at={run.completedAt} />
+            </Fact>
+          )}
+          <Fact label="Analysis">
+            <span className="font-mono text-[0.8125rem] leading-5 break-all">{run.id}</span>
+          </Fact>
+        </dl>
+      </header>
 
       {run.status === "completed" ? (
         <>
@@ -178,6 +184,9 @@ async function Analysis({ params }: { params: Promise<{ analysisId: string }> })
             <ReanalyzeForm analysisId={run.id} quiet>
               Re-analyze
             </ReanalyzeForm>
+            <a href={pullRequestUrl} className="btn btn-secondary btn-small">
+              Open on GitHub
+            </a>
             <Link href={pullRequestsPath(run.repository.id)} className="py-2 text-accent hover:underline">
               Other pull requests
             </Link>
@@ -216,13 +225,13 @@ async function Analysis({ params }: { params: Promise<{ analysisId: string }> })
 
 export default function AnalysisPage({ params }: PageProps<"/app/analyses/[analysisId]">) {
   return (
-    <div className="max-w-5xl">
-      <p className="mb-1 text-sm text-muted">
+    <div className="enter mx-auto max-w-5xl">
+      <nav aria-label="Breadcrumb" className="mb-3 text-sm text-muted">
         <Link href={WORKSPACE_PATH} className="hover:text-ink">
           Overview
         </Link>{" "}
-        / Pull request analysis
-      </p>
+        <span aria-hidden="true">/</span> Pull request analysis
+      </nav>
       <Suspense>
         <Analysis params={params} />
       </Suspense>

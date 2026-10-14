@@ -1,10 +1,12 @@
+import { RepositoryIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { submitRepository } from "@/lib/ingestion/actions";
 
 export function RepositoryForm() {
   return (
-    <form action={submitRepository} className="rounded-lg border border-line bg-surface px-5 py-4">
-      <label htmlFor="repository-url" className="block text-sm font-medium">
+    <form action={submitRepository} className="panel px-5 py-4">
+      <label htmlFor="repository-url" className="flex items-center gap-2 text-sm font-medium">
+        <RepositoryIcon className="size-4 text-accent" />
         Public GitHub repository
       </label>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -19,7 +21,7 @@ export function RepositoryForm() {
           spellCheck={false}
           placeholder="https://github.com/owner/repository"
           aria-describedby="repository-url-help"
-          className="min-w-0 flex-1 basis-72 rounded-md border border-line bg-canvas px-3 py-2 font-mono text-[0.8125rem] placeholder:text-muted/70"
+          className="min-w-0 flex-1 basis-72 rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[0.8125rem] transition-colors duration-150 placeholder:text-muted/70 hover:border-ink/30 focus-visible:border-accent"
         />
         <SubmitButton pendingLabel="Checking the repository…">Analyze repository</SubmitButton>
       </div>

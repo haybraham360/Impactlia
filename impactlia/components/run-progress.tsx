@@ -211,7 +211,7 @@ export function RunProgress({
     <div className="max-w-2xl">
       <div
         role="status"
-        className={`rounded-lg border bg-surface px-5 py-4 ${
+        className={`panel px-5 py-4 ${
           progress.status === "failed"
             ? "border-critical/40"
             : stale
@@ -254,10 +254,7 @@ export function RunProgress({
 
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
           {progress.status === "completed" && completed && (
-            <Link
-              href={completed.href}
-              className="rounded-md bg-accent px-3.5 py-2 font-medium text-accent-ink"
-            >
+            <Link href={completed.href} className="btn btn-primary btn-small">
               {completed.label}
             </Link>
           )}
@@ -296,20 +293,66 @@ export function RunProgress({
         </div>
       )}
 
-      <ol className="mt-6 space-y-3">
+      {/* How far along the stored stages say the run is. Moves only when a
+          stage is persisted; there is no timer behind it. */}
+      <div className="mt-6 flex items-center gap-3 text-xs text-muted">
+        <span className="tabular-nums">
+          {progress.status === "completed"
+            ? `All ${stages.length} stages done`
+            : `Stage ${Math.max(stageIds.indexOf(progress.stage), 0) + 1} of ${stages.length}`}
+        </span>
+        <span aria-hidden="true" className="flex h-1 flex-1 gap-0.5">
+          {stages.map((entry) => {
+            const state = stateOf(entry.id, progress, stageIds);
+            return (
+              <span
+                key={entry.id}
+                className={`flex-1 rounded-full transition-colors duration-500 ${
+                  state === "done"
+                    ? "bg-positive"
+                    : state === "current"
+                      ? "bg-accent"
+                      : state === "failed"
+                        ? "bg-critical"
+                        : "bg-line"
+                }`}
+              />
+            );
+          })}
+        </span>
+      </div>
+
+      <ol className="mt-5">
         {stages.map((entry, index) => {
           const state = stateOf(entry.id, progress, stageIds);
           const mark = marks[state];
+          const last = index === stages.length - 1;
           return (
             <li
               key={entry.id}
               aria-current={state === "current" ? "step" : undefined}
-              className="flex gap-3 text-sm"
+              className="relative flex gap-3 pb-4 text-sm last:pb-0"
             >
+              {/* The rail joining this stage to the next, filled once passed. */}
+              {!last && (
+                <span
+                  aria-hidden="true"
+                  className={`absolute top-5 bottom-0.5 left-10 w-px transition-colors duration-500 ${
+                    state === "done" ? "bg-positive/60" : "bg-line"
+                  }`}
+                />
+              )}
               <span className="w-5 shrink-0 pt-0.5 text-right font-mono text-xs text-muted">
                 {index + 1}
               </span>
-              <span className={`mt-1.5 size-2 shrink-0 ${mark.mark} ${mark.tone}`} aria-hidden="true" />
+              <span
+                aria-hidden="true"
+                className={`relative mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${mark.tone} ${
+                  state === "current" && !stale ? "live-ring" : ""
+                }`}
+              >
+                <span className={`size-2 ${mark.mark}`} />
+              </span>
               <span className={state === "waiting" ? "text-muted" : ""}>
                 <span className={state === "current" || state === "failed" ? "font-medium" : ""}>
                   {entry.label}

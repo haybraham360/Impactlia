@@ -20,8 +20,12 @@ export function SiteNav() {
   }, [open]);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-line bg-canvas/90 backdrop-blur-sm">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-8 px-4 sm:px-6">
+    <header
+      className={`landing-nav sticky top-0 z-20 border-b backdrop-blur-md ${
+        open ? "bg-canvas!" : ""
+      }`}
+    >
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-8 px-4 sm:px-6">
         <Link href="/" className="text-base font-semibold tracking-tight">
           Impactlia
         </Link>
@@ -45,10 +49,7 @@ export function SiteNav() {
           >
             Sign in
           </Link>
-          <Link
-            href={SIGN_UP_PATH}
-            className="rounded-md bg-accent px-3.5 py-1.5 text-sm font-medium text-accent-ink transition-colors duration-150 hover:bg-accent/90 active:bg-accent/80"
-          >
+          <Link href={SIGN_UP_PATH} className="btn btn-primary btn-small">
             Get started
           </Link>
           <button
@@ -56,7 +57,7 @@ export function SiteNav() {
             aria-expanded={open}
             aria-controls={MENU_ID}
             onClick={() => setOpen((current) => !current)}
-            className="flex size-9 cursor-pointer items-center justify-center rounded-md border border-line transition-colors duration-150 hover:border-ink/40 md:hidden"
+            className="flex size-10 cursor-pointer items-center justify-center rounded-lg border border-line transition-colors duration-150 hover:border-ink/40 md:hidden"
           >
             <span className="sr-only">{open ? "Close menu" : "Open menu"}</span>
             <svg
@@ -82,18 +83,22 @@ export function SiteNav() {
         <ul className="text-sm">
           {sectionLinks.map((link) => (
             <li key={link.href}>
-              <a href={link.href} onClick={() => setOpen(false)} className="block py-2.5">
+              <a href={link.href} onClick={() => setOpen(false)} className="block py-3">
                 {link.label}
               </a>
             </li>
           ))}
           <li className="sm:hidden">
-            <Link href={SIGN_IN_PATH} className="block py-2.5 text-muted">
+            <Link href={SIGN_IN_PATH} className="block py-3 text-muted">
               Sign in
             </Link>
           </li>
         </ul>
       </nav>
+      <span
+        aria-hidden="true"
+        className="landing-progress absolute inset-x-0 -bottom-px h-px bg-linear-to-r from-accent via-incoming to-outgoing"
+      />
     </header>
   );
 }

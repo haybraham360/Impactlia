@@ -15,7 +15,19 @@ export type ExampleFile = {
   reason: string;
 };
 
-export const examplePullRequest = { number: 128, title: "Update payment flow" };
+export const examplePullRequest = {
+  number: 128,
+  title: "Update payment flow",
+  head: "payment-rounding",
+  base: "main",
+};
+
+// The hero map builds itself one step at a time, from the changed files
+// outwards. Defined here rather than beside the map so the server-rendered
+// parts of the hero can time themselves against it.
+export const MAP_STEP_MS = 300;
+// From the map's first file to its last label.
+export const MAP_BUILD_MS = 7 * MAP_STEP_MS;
 
 export const exampleFiles: ExampleFile[] = [
   {
@@ -147,4 +159,47 @@ export function layersFromChange(id: string): ExampleFile[][] {
     current = exampleFiles.filter((file) => next.has(file.id) && !seen.has(file.id));
   }
   return layers;
+}
+
+// What the example's diff says about each changed file. GitHub reports these
+// counts; Impactlia's analysis uses only the paths and statuses.
+export const exampleDiff: Record<string, { added: number; removed: number; status: string }> = {
+  "src/payments/payment.ts": { added: 42, removed: 17, status: "Modified" },
+  "src/payments/currency.ts": { added: 6, removed: 2, status: "Modified" },
+};
+
+export type Reached = {
+  file: ExampleFile;
+  // Imports between this file and the changed file it was reached from.
+  steps: number;
+  // From the reached file back to the changed file, each one importing the next.
+  path: ExampleFile[];
+};
+
+// Everything that imports one changed file, directly or through other files,
+// nearest first. Breadth-first, so each file keeps its shortest path.
+export function reachFrom(changedId: string): Reached[] {
+  const byId = new Map(exampleFiles.map((file) => [file.id, file]));
+  const parent = new Map<string, string>();
+  const depth = new Map<string, number>([[changedId, 0]]);
+  const queue = [changedId];
+  for (const id of queue) {
+    for (const edge of exampleEdges) {
+      if (edge.target === id && !depth.has(edge.source)) {
+        depth.set(edge.source, (depth.get(id) ?? 0) + 1);
+        parent.set(edge.source, id);
+        queue.push(edge.source);
+      }
+    }
+  }
+  return queue.slice(1).flatMap((id) => {
+    const file = byId.get(id);
+    if (!file) return [];
+    const path: ExampleFile[] = [];
+    for (let at: string | undefined = id; at !== undefined; at = parent.get(at)) {
+      const step = byId.get(at);
+      if (step) path.push(step);
+    }
+    return [{ file, steps: depth.get(id) ?? 0, path }];
+  });
 }
