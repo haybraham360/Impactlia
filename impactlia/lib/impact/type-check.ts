@@ -63,6 +63,16 @@ export function typeCheckFiles(
   const startedAt = Date.now();
   const root = fs.realpathSync.native(path.resolve(directory));
   const libraries = path.dirname(ts.getDefaultLibFilePath({}));
+  // Without the library declarations every built-in type is unknown and
+  // nearly every line is an error. Nothing is checked rather than that.
+  if (!fs.existsSync(path.join(libraries, "lib.es5.d.ts"))) {
+    return paths.map((file) => ({
+      path: file,
+      state: "skipped",
+      reason:
+        "TypeScript's built-in library declarations are missing on the server, so no file could be type-checked.",
+    }));
+  }
   const canonical = (fileName: string) =>
     ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase();
   const inside = (fileName: string, folder: string) => {
