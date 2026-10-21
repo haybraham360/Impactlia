@@ -1,0 +1,28 @@
+# Starts Impactlia's automatic analyses whose retry is due and recovers any
+# that stopped without finishing. The Vercel Hobby plan allows a cron job only
+# once a day, so this calls the sweep every half hour instead. Each run makes
+# one request and finishes in seconds; the work happens on Vercel.
+#
+# Needs the repository secret IMPACTLIA_CRON_SECRET, equal to CRON_SECRET in
+# Vercel's production environment.
+name: Automatic analysis sweep
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Start due analyses
+        env:
+          CRON_SECRET: ${{ secrets.IMPACTLIA_CRON_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://impactlia.com/api/github/jobs
