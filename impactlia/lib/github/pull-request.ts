@@ -2,12 +2,13 @@ import { IngestionError } from "../ingestion/errors";
 import { readPatch } from "../impact/patch";
 import type { ChangeType, PullRequestChanges, PullRequestFile } from "../impact/report";
 import { HEADERS, REQUEST_TIMEOUT_MS, refusal, repositoryApi, request } from "./public-repository";
-import type { RepositoryReference } from "./repository-url";
+import type { RepositoryAccess, RepositoryReference } from "./repository-url";
 
 // Everything Impactlia asks GitHub about a pull request. Like the rest of
-// lib/github, requests carry no token, so only pull requests of public
-// repositories can be seen, and nothing about GitHub's responses leaves this
-// file except the plain values below.
+// lib/github, requests a member starts carry no token, so only pull requests
+// of public repositories can be seen; automatic analysis passes an
+// installation token. Nothing about GitHub's responses leaves this file
+// except the plain values below.
 //
 // Everything GitHub returns here was written by whoever opened the pull
 // request. It is data: it is checked for shape, cut to length, and never
@@ -99,13 +100,14 @@ const label = ({ owner, name }: RepositoryReference) => `${owner}/${name}`;
 
 // The pull request as GitHub has it right now.
 export async function findPullRequest(
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
   number: number,
 ): Promise<PullRequest> {
   const response = await request(
     `${repositoryApi(repository)}/pulls/${number}`,
     HEADERS.Accept,
     REQUEST_TIMEOUT_MS,
+    repository.token,
   );
   if (response.status === 404) {
     throw new IngestionError(
@@ -126,12 +128,13 @@ export async function findPullRequest(
 
 // The open pull requests most recently updated. One request.
 export async function listOpenPullRequests(
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
 ): Promise<PullRequestSummary[]> {
   const response = await request(
     `${repositoryApi(repository)}/pulls?state=open&sort=updated&direction=desc&per_page=${PULL_REQUEST_LIST_LIMIT}`,
     HEADERS.Accept,
     REQUEST_TIMEOUT_MS,
+    repository.token,
   );
   if (!response.ok) throw refusal(response, repository);
   const body: unknown = await response.json();
@@ -182,7 +185,7 @@ function readFile(value: unknown): PullRequestFile | null {
 // the pull request's own count, which decides how many pages to ask for and
 // whether what came back is all of it.
 export async function listPullRequestFiles(
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
   number: number,
   expected: number,
 ): Promise<PullRequestChanges> {
@@ -193,6 +196,7 @@ export async function listPullRequestFiles(
       `${repositoryApi(repository)}/pulls/${number}/files?per_page=${PAGE_SIZE}&page=${page}`,
       HEADERS.Accept,
       REQUEST_TIMEOUT_MS,
+      repository.token,
     );
     if (response.status === 404) {
       throw new IngestionError(

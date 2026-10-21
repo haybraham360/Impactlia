@@ -5,7 +5,7 @@ import {
   listPullRequestFiles,
   type PullRequest,
 } from "@/lib/github/pull-request";
-import type { RepositoryReference } from "@/lib/github/repository-url";
+import type { RepositoryAccess } from "@/lib/github/repository-url";
 import { calculateBlastRadius, mapChangedFiles, scoreImpact } from "@/lib/impact/analyze";
 import { collectCodeIssues, planCodeCheck } from "@/lib/impact/code-issues";
 import type { ImpactReport } from "@/lib/impact/report";
@@ -37,6 +37,15 @@ function reasonFor(error: unknown, stage: AnalysisStageId, analysisId: string): 
   return `Something went wrong in the "${analysisStageOf(stage).label}" stage. The details were logged on the server; nothing was saved from this analysis.`;
 }
 
+// How a run ended, for a caller that acts on it. A member's run ignores it:
+// everything is already written to the analysis. An automatic analysis uses
+// it to decide whether to retry.
+export type PipelineOutcome =
+  | { kind: "completed" }
+  | { kind: "failed"; reason: string; retryable: boolean; retryAt: number | null }
+  // Someone closed it as stale and started another.
+  | { kind: "superseded" };
+
 // Runs an analysis from "fetching" to its end. Validation has already
 // happened: `pullRequest` is what GitHub said when the run was created, and
 // its head commit is the one revision this run is about.
@@ -51,9 +60,9 @@ function reasonFor(error: unknown, stage: AnalysisStageId, analysisId: string): 
 export async function runImpactPipeline(
   client: SupabaseClient,
   analysisId: string,
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
   pullRequest: PullRequest,
-): Promise<void> {
+): Promise<PipelineOutcome> {
   const startedAt = Date.now();
   let stage: AnalysisStageId = "fetching";
   // The one way an analysis moves on: the stage just finished is recorded
@@ -139,16 +148,25 @@ export async function runImpactPipeline(
 
     await enter("saving");
     await completeAnalysis(client, analysisId, report);
+    return { kind: "completed" };
   } catch (error) {
-    if (error instanceof RunSuperseded) return;
+    if (error instanceof RunSuperseded) return { kind: "superseded" };
+    const reason = reasonFor(error, stage, analysisId);
     try {
-      await failAnalysis(client, analysisId, reasonFor(error, stage, analysisId));
+      await failAnalysis(client, analysisId, reason);
     } catch (unrecorded) {
       console.error(
         `Analysis ${analysisId} failed and the failure could not be recorded:`,
         unrecorded,
       );
     }
+    const known = error instanceof IngestionError ? error : null;
+    return {
+      kind: "failed",
+      reason,
+      retryable: known?.retryable ?? false,
+      retryAt: known?.retryAt ?? null,
+    };
   } finally {
     if (directory !== null) fs.rmSync(directory, { recursive: true, force: true });
   }

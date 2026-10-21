@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import { IngestionError } from "../ingestion/errors";
-import type { RepositoryReference } from "./repository-url";
+import type { RepositoryAccess, RepositoryReference } from "./repository-url";
 
-// Everything Impactlia asks GitHub about a public repository. Requests carry
-// no token: nothing here can see a private repository, and nothing about
-// GitHub's responses leaves this file except the plain values below.
+// Everything Impactlia asks GitHub about a public repository. Requests a
+// member starts carry no token, so they cannot see a private repository.
+// Automatic analysis passes an installation token (RepositoryAccess) for the
+// higher limit, and checks `isPrivate` itself. Nothing about GitHub's
+// responses leaves this file except the plain values below.
 //
 // Unauthenticated requests share GitHub's limit of 60 an hour per server
 // address. One repository analysis makes three, opening a repository makes
@@ -19,6 +21,8 @@ export type PublicRepository = {
   owner: string;
   name: string;
   defaultBranch: string;
+  // Always false without a token: GitHub hides private repositories then.
+  isPrivate: boolean;
 };
 
 export const API = "https://api.github.com";
@@ -40,38 +44,68 @@ const timeFormat = new Intl.DateTimeFormat("en-GB", {
 // on an unreliable network a single failed connection is common, and a
 // second attempt usually gets through. A request that connected but did not
 // finish in time is not repeated.
-export async function request(url: string, accept: string, timeout: number): Promise<Response> {
+//
+// A token goes only to api.github.com. A download redirects to another host,
+// and fetch drops the Authorization header on a redirect to another origin.
+export async function request(
+  url: string,
+  accept: string,
+  timeout: number,
+  token?: string,
+): Promise<Response> {
+  const headers: Record<string, string> = { ...HEADERS, Accept: accept };
+  if (token) headers.Authorization = `Bearer ${token}`;
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await fetch(url, {
-        headers: { ...HEADERS, Accept: accept },
+        headers,
         redirect: "follow",
         signal: AbortSignal.timeout(timeout),
       });
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") {
-        throw new IngestionError("GitHub took too long to answer. Try again in a moment.");
+        throw new IngestionError("GitHub took too long to answer. Try again in a moment.", {
+          retryable: true,
+        });
       }
       if (attempt === 2) {
-        throw new IngestionError("GitHub could not be reached. Try again in a moment.");
+        throw new IngestionError("GitHub could not be reached. Try again in a moment.", {
+          retryable: true,
+        });
       }
     }
   }
 }
 
 // The reasons GitHub refuses that the person can do something about.
-export function refusal(response: Response, repository: RepositoryReference): IngestionError {
+export function refusal(response: Response, repository: RepositoryAccess): IngestionError {
   const label = `${repository.owner}/${repository.name}`;
   if (
     (response.status === 403 || response.status === 429) &&
     response.headers.get("x-ratelimit-remaining") === "0"
   ) {
     const reset = Number(response.headers.get("x-ratelimit-reset"));
-    const when = Number.isFinite(reset) && reset > 0
-      ? ` Try again after ${timeFormat.format(new Date(reset * 1000))} UTC.`
+    const retryAt = Number.isFinite(reset) && reset > 0 ? reset * 1000 : null;
+    const when = retryAt !== null
+      ? ` Try again after ${timeFormat.format(new Date(retryAt))} UTC.`
       : " Try again later.";
+    const whose = repository.token
+      ? "GitHub's hourly request limit for the Impactlia GitHub App on this account"
+      : "GitHub's hourly limit for requests without a sign-in";
+    return new IngestionError(`${whose} has been reached.${when}`, { retryable: true, retryAt });
+  }
+  // GitHub's secondary limits, on bursts of requests, say how long to wait.
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if ((response.status === 403 || response.status === 429) && retryAfter > 0) {
     return new IngestionError(
-      `GitHub's hourly limit for requests without a sign-in has been reached.${when}`,
+      "GitHub asked Impactlia to slow down. Try again in a few minutes.",
+      { retryable: true, retryAt: Date.now() + retryAfter * 1000 },
+    );
+  }
+  if (response.status >= 500) {
+    return new IngestionError(
+      `GitHub answered with an error (${response.status}) for ${label}. Try again in a moment.`,
+      { retryable: true },
     );
   }
   if (response.status === 404) {
@@ -94,16 +128,22 @@ export const repositoryApi = ({ owner, name }: RepositoryReference) =>
   `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 
 export async function findPublicRepository(
-  reference: RepositoryReference,
+  reference: RepositoryAccess,
 ): Promise<PublicRepository> {
-  const response = await request(repositoryApi(reference), HEADERS.Accept, REQUEST_TIMEOUT_MS);
+  const response = await request(
+    repositoryApi(reference),
+    HEADERS.Accept,
+    REQUEST_TIMEOUT_MS,
+    reference.token,
+  );
   if (!response.ok) throw refusal(response, reference);
 
   const body: unknown = await response.json();
   if (typeof body !== "object" || body === null) {
     throw new Error("GitHub's repository response was not an object.");
   }
-  const { id, name, owner, default_branch: defaultBranch } = body as Record<string, unknown>;
+  const { id, name, owner, default_branch: defaultBranch, private: hidden } =
+    body as Record<string, unknown>;
   const login =
     typeof owner === "object" && owner !== null ? (owner as Record<string, unknown>).login : null;
   if (
@@ -116,17 +156,24 @@ export async function findPublicRepository(
   }
   // Without a token GitHub only ever answers for public repositories, so a
   // private one has already been refused above as not found.
-  return { providerRepositoryId: String(id), owner: login, name, defaultBranch };
+  return {
+    providerRepositoryId: String(id),
+    owner: login,
+    name,
+    defaultBranch,
+    isPrivate: hidden === true,
+  };
 }
 
 // The commit the default branch points at right now.
 export async function findHeadCommit(
-  repository: RepositoryReference & { defaultBranch: string },
+  repository: RepositoryAccess & { defaultBranch: string },
 ): Promise<string> {
   const response = await request(
     `${repositoryApi(repository)}/commits/${encodeURIComponent(repository.defaultBranch)}`,
     "application/vnd.github.sha",
     REQUEST_TIMEOUT_MS,
+    repository.token,
   );
   if (!response.ok) throw refusal(response, repository);
   const sha = (await response.text()).trim();
@@ -139,7 +186,7 @@ export async function findHeadCommit(
 // Downloads the archive of exactly one commit. Stops, and fails, as soon as
 // the download passes `maxBytes`.
 export async function downloadArchive(
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
   commitSha: string,
   file: string,
   maxBytes: number,
@@ -148,6 +195,7 @@ export async function downloadArchive(
     `${repositoryApi(repository)}/tarball/${commitSha}`,
     HEADERS.Accept,
     DOWNLOAD_TIMEOUT_MS,
+    repository.token,
   );
   if (!response.ok) throw refusal(response, repository);
   if (!response.body) throw new Error("GitHub's archive response had no body.");
@@ -174,7 +222,9 @@ export async function downloadArchive(
   } catch (error) {
     await reader.cancel().catch(() => undefined);
     if (error instanceof IngestionError) throw error;
-    throw new IngestionError("The download from GitHub was interrupted. Try again in a moment.");
+    throw new IngestionError("The download from GitHub was interrupted. Try again in a moment.", {
+      retryable: true,
+    });
   } finally {
     fs.closeSync(descriptor);
   }
@@ -184,7 +234,7 @@ export async function downloadArchive(
 // rather than returning part of it, because the caller checks the bytes
 // against a hash.
 export async function fetchFileAtCommit(
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
   commitSha: string,
   filePath: string,
   maxBytes: number,
@@ -194,6 +244,7 @@ export async function fetchFileAtCommit(
     `${repositoryApi(repository)}/contents/${encoded}?ref=${commitSha}`,
     "application/vnd.github.raw+json",
     REQUEST_TIMEOUT_MS,
+    repository.token,
   );
   if (response.status === 404) {
     throw new IngestionError(

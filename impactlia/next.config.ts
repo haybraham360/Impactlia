@@ -12,9 +12,12 @@ const nextConfig: NextConfig = {
   // A pull request analysis type-checks the changed code, and the compiler
   // reads its built-in library declarations (lib.*.d.ts) from disk at
   // runtime, so tracing does not find them. The pages under /app are where
-  // an analysis is started or re-run.
+  // an analysis is started or re-run; the GitHub webhook and the retry sweep
+  // run automatic analyses.
   outputFileTracingIncludes: {
     "/app/**": ["./node_modules/typescript/lib/lib.*.d.ts"],
+    "/api/github/webhook": ["./node_modules/typescript/lib/lib.*.d.ts"],
+    "/api/github/jobs": ["./node_modules/typescript/lib/lib.*.d.ts"],
   },
   turbopack: {
     rules: {

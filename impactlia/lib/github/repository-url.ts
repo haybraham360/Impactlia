@@ -5,6 +5,12 @@ import { IngestionError } from "../ingestion/errors";
 // yet an identity: that is GitHub's own repository id, looked up from here.
 export type RepositoryReference = { owner: string; name: string };
 
+// A repository and, for automatic analysis only, a GitHub App installation
+// token for it. With a token, requests count against the installation's own
+// limit rather than the small shared one for requests without a sign-in. A
+// token is held only by server code and never stored.
+export type RepositoryAccess = RepositoryReference & { token?: string };
+
 const EXAMPLE = "https://github.com/owner/repository";
 export const MAX_URL_LENGTH = 300;
 

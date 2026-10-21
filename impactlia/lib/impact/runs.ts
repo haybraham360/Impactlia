@@ -276,7 +276,7 @@ function readDetail(value: Json): SignalDetail {
   return { rule: typeof value.rule === "string" ? value.rule : "", facts: strings(value.facts) };
 }
 
-function readLimitations(value: Json): Limitation[] {
+export function readLimitations(value: Json): Limitation[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) =>
     isRecord(entry) && typeof entry.id === "string" && typeof entry.detail === "string"
@@ -297,7 +297,7 @@ function readRelatedFiles(value: Json): RelatedFile[] {
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0;
 
-function readCodeCheck(value: Json | null): CodeCheck | null {
+export function readCodeCheck(value: Json | null): CodeCheck | null {
   if (!isRecord(value)) return null;
   const skipped = Array.isArray(value.skipped) ? value.skipped : [];
   const setAside = Array.isArray(value.setAside) ? value.setAside : [];
@@ -354,7 +354,7 @@ const DIRECTIONS: readonly RiskFactor["direction"][] = [
 const oneOf = <T extends string>(values: readonly T[], value: unknown): T | null =>
   values.find((known) => known === value) ?? null;
 
-function readRiskAssessment(value: Json | null): RiskAssessment | null {
+export function readRiskAssessment(value: Json | null): RiskAssessment | null {
   if (!isRecord(value) || typeof value.summary !== "string" || !Array.isArray(value.factors)) {
     return null;
   }

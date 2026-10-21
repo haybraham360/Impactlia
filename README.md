@@ -87,6 +87,7 @@ Checks you can run from a terminal:
 pnpm lint
 pnpm build
 pnpm check:impact      # pull request impact and code-issue analysis
+pnpm check:automation  # GitHub webhooks, retries and the pull request comment
 pnpm check:graph       # dependency graph traversal
 pnpm check:adapters    # framework adapters
 pnpm check:ingestion   # repository ingestion
@@ -108,6 +109,35 @@ Put these in `impactlia/.env.local`, next to `package.json`. `impactlia/lib/env.
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Database (Supabase) |
 | `OPENAI_API_KEY` | No | AI explanations. Without it they are unavailable; analysis itself does not use AI. |
 | `LANGSMITH_API_KEY` | No | Sending AI run traces to LangSmith |
+
+Automatic pull request analysis needs every one of the following, or it stays off and the pull requests page names what is missing. All are server-only.
+
+| Variable | Used for |
+| --- | --- |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG` | Identifying the Impactlia GitHub App |
+| `GITHUB_APP_PRIVATE_KEY` | Signing as the App. The PEM, with line breaks written as `\n` |
+| `GITHUB_WEBHOOK_SECRET` | Verifying each webhook delivery |
+| `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | Confirming, once, that the member connecting an installation can see it |
+| `SUPABASE_SECRET_KEY` | Writing jobs and analyses when there is no signed-in member. Bypasses row-level security; used only in `lib/supabase/service.ts` |
+| `CRON_SECRET` | Authorising Vercel Cron's calls to the retry sweep |
+| `APP_URL` | The address the comment links to. On Vercel it defaults to the production domain |
+
+### Automatic pull request analysis
+
+With the Impactlia GitHub App installed on a public repository and automatic analysis turned on for it (pull requests page → select the repository), every pull request opened, reopened or pushed to is analysed at its head commit by the same pipeline as a manual analysis. Impactlia keeps one comment on the pull request up to date, and only ever for the commit that is the head at the moment it publishes.
+
+The GitHub App's settings:
+
+- **Permissions:** Metadata read, Contents read, Pull requests read & write. Nothing else; no write access to code.
+- **Subscribe to events:** Pull request. (Installation events are always sent to Apps.)
+- **Webhook URL:** `https://<domain>/api/github/webhook`, with the webhook secret.
+- **Callback URL:** `https://<domain>/api/github/installed`, and **Request user authorization (OAuth) during installation** on. That sign-in is how Impactlia confirms the member can see the installation they are connecting; the token is revoked immediately and never stored.
+
+How it runs: the webhook verifies the signature, records the delivery and the job in one transaction (a redelivery changes nothing), answers straight away, then starts the job after the response. A job that cannot run yet, or fails temporarily (GitHub unreachable or rate limiting), is retried by the sweep at `/api/github/jobs`, which Vercel Cron calls every minute (`impactlia/vercel.json`, Pro plan), after 1, 5 and 15 minutes, then marked failed. An attempt that dies is reclaimed after 10 minutes. One job runs per repository at a time, and a sweep starts at most three. Each attempt logs one `automatic_analysis_attempt` line with its outcome and duration.
+
+Cost: one analysis per pushed commit, using the installation's GitHub rate limit (5,000 requests an hour) rather than the shared unauthenticated one, about 7 requests per analysis plus 2 for the comment. A commit already analysed is not analysed again. No AI is called. The only added infrastructure is the cron schedule, which is included in the Vercel plan.
+
+Limits: public repositories only; the comment lists at most five affected files, issues and tests and links to the rest; GitHub does not redeliver failed webhooks on its own, though they can be redelivered from the App's settings.
 
 - Never commit `.env` files, API keys, access tokens, database passwords, or other secrets.
 - Keep server-side secrets out of client-side `NEXT_PUBLIC_` variables.
