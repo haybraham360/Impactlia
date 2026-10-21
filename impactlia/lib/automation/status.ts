@@ -16,7 +16,7 @@ export const CONNECT_OUTCOMES = {
   "not-started-here":
     "That GitHub installation was not started from Impactlia, or took too long. Use \"Connect GitHub\" here and try again.",
   "no-sign-in":
-    "GitHub did not ask you to confirm your account, so the installation could not be connected. The App must have \"Request user authorization (OAuth) during installation\" turned on.",
+    "GitHub did not confirm your account, so the installation could not be connected. Try again, and approve the request when GitHub asks.",
   "not-yours": "GitHub says your account cannot see that installation, so it was not connected.",
   taken: "That installation is already connected to another Impactlia organization.",
   failed: "The installation could not be connected. Try again in a moment.",
