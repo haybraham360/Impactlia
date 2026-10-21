@@ -21,7 +21,7 @@ import {
   upsertPullRequest,
 } from "@/lib/impact/runs";
 import { IngestionError } from "@/lib/ingestion/errors";
-import { analysisPath } from "@/lib/routes";
+import { AUTOMATION_SWEEP_PATH, analysisPath } from "@/lib/routes";
 import type { Database } from "@/lib/supabase/database.types";
 import { createServiceSupabaseClient, type ServiceSupabaseClient } from "@/lib/supabase/service";
 import {
@@ -106,7 +106,8 @@ async function retryLater(
   await settle(db, job, {
     status: "queued",
     next_attempt_at: at.toISOString(),
-    message: `${reason} Retrying at ${timeFormat.format(at)} UTC.`,
+    // The sweep runs every half hour, so this is the earliest, not a promise.
+    message: `${reason} Retrying after ${timeFormat.format(at)} UTC.`,
   });
   return "retry";
 }
@@ -397,12 +398,26 @@ export async function processAutomaticAnalysis(config: AutomationConfig, jobId: 
       durationMs: Date.now() - startedAt,
     }),
   );
+  await startDueAnalyses(config);
+}
+
+// Asks the sweep to start whatever is due now, so a job that waited behind
+// this one starts when this one ends rather than at the next scheduled
+// sweep. It is a request to the sweep, not a call, so that job gets a
+// function invocation and a time limit of its own. Best effort: the
+// schedule picks up anything this misses. It ends: only jobs due now start,
+// and a job's retry is never due at once.
+async function startDueAnalyses(config: AutomationConfig): Promise<void> {
+  await fetch(`${config.appUrl}${AUTOMATION_SWEEP_PATH}`, {
+    headers: { Authorization: `Bearer ${config.cronSecret}` },
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => undefined);
 }
 
 // The jobs that are due, or whose attempt went silent, oldest first. The
 // claim decides again with the database's clock, so the cut-off here only
 // keeps the list short.
-export async function processDueAnalyses(config: AutomationConfig): Promise<number> {
+export async function listDueAnalyses(config: AutomationConfig): Promise<string[]> {
   const db = createServiceSupabaseClient(config);
   const now = new Date();
   const abandoned = new Date(now.getTime() - 10 * 60 * 1000);
@@ -415,6 +430,5 @@ export async function processDueAnalyses(config: AutomationConfig): Promise<numb
     .order("next_attempt_at")
     .limit(SWEEP_LIMIT);
   if (error) throw new Error(`Due automatic analyses could not be listed: ${error.message}`);
-  await Promise.all(data.map((row) => processAutomaticAnalysis(config, row.id)));
-  return data.length;
+  return data.map((row) => row.id);
 }
