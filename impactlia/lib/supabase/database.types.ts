@@ -175,10 +175,15 @@ export type Database = {
           organization_id: string
           progressed_at: string
           pull_request_id: string
+          risk_assessment: Json | null
+          risk_confidence: Database["public"]["Enums"]["analysis_confidence"] | null
           risk_level: Database["public"]["Enums"]["risk_level"] | null
+          risk_score: number | null
+          risk_score_level: Database["public"]["Enums"]["risk_score_level"] | null
           stage: Database["public"]["Enums"]["analysis_stage"]
           started_at: string | null
           status: Database["public"]["Enums"]["analysis_status"]
+          test_discovery: Json | null
         }
         Insert: {
           affected_file_count?: number | null
@@ -196,10 +201,15 @@ export type Database = {
           organization_id: string
           progressed_at?: string
           pull_request_id: string
+          risk_assessment?: Json | null
+          risk_confidence?: Database["public"]["Enums"]["analysis_confidence"] | null
           risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          risk_score?: number | null
+          risk_score_level?: Database["public"]["Enums"]["risk_score_level"] | null
           stage?: Database["public"]["Enums"]["analysis_stage"]
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
+          test_discovery?: Json | null
         }
         Update: {
           affected_file_count?: number | null
@@ -217,10 +227,15 @@ export type Database = {
           organization_id?: string
           progressed_at?: string
           pull_request_id?: string
+          risk_assessment?: Json | null
+          risk_confidence?: Database["public"]["Enums"]["analysis_confidence"] | null
           risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          risk_score?: number | null
+          risk_score_level?: Database["public"]["Enums"]["risk_score_level"] | null
           stage?: Database["public"]["Enums"]["analysis_stage"]
           started_at?: string | null
           status?: Database["public"]["Enums"]["analysis_status"]
+          test_discovery?: Json | null
         }
         Relationships: [
           {
@@ -566,6 +581,80 @@ export type Database = {
           },
         ]
       }
+      analysis_test_recommendations: {
+        Row: {
+          analysis_id: string
+          command: string | null
+          confidence: Database["public"]["Enums"]["analysis_confidence"]
+          description: string
+          evidence: Json
+          id: string
+          kind: Database["public"]["Enums"]["test_recommendation_kind"]
+          organization_id: string
+          position: number
+          priority: Database["public"]["Enums"]["recommendation_priority"]
+          rationale: string
+          related_changed_files: Json
+          related_test_files: Json
+          relationship: Database["public"]["Enums"]["test_relationship"] | null
+          risk_addressed: string | null
+          status: Database["public"]["Enums"]["test_recommendation_status"]
+          symbol: string | null
+          title: string
+          working_directory: string | null
+        }
+        Insert: {
+          analysis_id: string
+          command?: string | null
+          confidence: Database["public"]["Enums"]["analysis_confidence"]
+          description: string
+          evidence?: Json
+          id?: string
+          kind: Database["public"]["Enums"]["test_recommendation_kind"]
+          organization_id: string
+          position: number
+          priority: Database["public"]["Enums"]["recommendation_priority"]
+          rationale: string
+          related_changed_files?: Json
+          related_test_files?: Json
+          relationship?: Database["public"]["Enums"]["test_relationship"] | null
+          risk_addressed?: string | null
+          status: Database["public"]["Enums"]["test_recommendation_status"]
+          symbol?: string | null
+          title: string
+          working_directory?: string | null
+        }
+        Update: {
+          analysis_id?: string
+          command?: string | null
+          confidence?: Database["public"]["Enums"]["analysis_confidence"]
+          description?: string
+          evidence?: Json
+          id?: string
+          kind?: Database["public"]["Enums"]["test_recommendation_kind"]
+          organization_id?: string
+          position?: number
+          priority?: Database["public"]["Enums"]["recommendation_priority"]
+          rationale?: string
+          related_changed_files?: Json
+          related_test_files?: Json
+          relationship?: Database["public"]["Enums"]["test_relationship"] | null
+          risk_addressed?: string | null
+          status?: Database["public"]["Enums"]["test_recommendation_status"]
+          symbol?: string | null
+          title?: string
+          working_directory?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_test_recommendations_analysis_id_organization_id_fkey"
+            columns: ["analysis_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           created_at: string
@@ -799,6 +888,7 @@ export type Database = {
       ai_cache_status: "hit" | "miss" | "read-failed" | "write-failed"
       ai_run_outcome: "succeeded" | "input-failed" | "model-failed" | "rejected"
       ai_task: "file-explanation" | "folder-explanation" | "role-classification"
+      analysis_confidence: "high" | "medium" | "low"
       analysis_file_kind: "changed" | "affected"
       analysis_file_state: "analysed" | "unanalysed"
       analysis_stage:
@@ -809,6 +899,7 @@ export type Database = {
         | "calculating"
         | "scoring"
         | "checking"
+        | "recommending"
         | "saving"
         | "complete"
       analysis_status: "pending" | "running" | "completed" | "failed"
@@ -817,6 +908,7 @@ export type Database = {
       code_issue_status: "confirmed"
       file_change_type: "added" | "modified" | "removed" | "renamed"
       finding_origin: "deterministic" | "ai"
+      recommendation_priority: "high" | "medium" | "low"
       repository_run_stage:
         | "validating"
         | "fetching"
@@ -827,7 +919,20 @@ export type Database = {
         | "complete"
       repository_run_status: "running" | "completed" | "failed"
       risk_level: "low" | "medium" | "high"
+      risk_score_level: "low" | "moderate" | "high" | "very_high"
       source_control_provider: "github"
+      test_recommendation_kind:
+        | "existing_test"
+        | "suggested_scenario"
+        | "coverage_unknown"
+        | "test_command"
+      test_recommendation_status: "found" | "suggested" | "unknown"
+      test_relationship:
+        | "imports-changed-symbol"
+        | "imports-changed-file"
+        | "changed-in-pull-request"
+        | "imports-indirectly"
+        | "name-only"
     }
     CompositeTypes: {
       [_ in never]: never

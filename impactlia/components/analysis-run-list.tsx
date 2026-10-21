@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 import { PullRequestIcon } from "@/components/icons";
-import type { RiskLevel } from "@/lib/impact/report";
+import type { Confidence, RiskLevel, RiskScoreLevel } from "@/lib/impact/report";
+import { levelLabel } from "@/lib/impact/score";
 import type { AnalysisRun, AnalysisStatus } from "@/lib/impact/runs";
 import { STALE_AFTER_MS, analysisStageOf } from "@/lib/impact/stages";
 import { PULL_REQUESTS_PATH, analysisPath } from "@/lib/routes";
@@ -66,6 +67,14 @@ const risks: Record<RiskLevel, { label: string; bars: number; tone: string }> =
     medium: { label: "Medium", bars: 2, tone: "text-caution" },
     high: { label: "High", bars: 3, tone: "text-critical" },
   };
+
+// The score's four levels, the same way: bars as well as colour.
+const scoreLevels: Record<RiskScoreLevel, { bars: number; tone: string }> = {
+  low: { bars: 1, tone: "text-positive" },
+  moderate: { bars: 2, tone: "text-caution" },
+  high: { bars: 3, tone: "text-critical" },
+  very_high: { bars: 4, tone: "text-critical" },
+};
 
 // Rendered on the server, which doesn't know the reader's time zone, so times
 // are shown in UTC and say so.
@@ -159,6 +168,44 @@ export function Risk({ level }: { level: RiskLevel }) {
   );
 }
 
+// The level, the number it came from, and, when the analysis could not see
+// enough to stand behind the number, that it is provisional.
+export function RiskScore({
+  score,
+  level,
+  confidence,
+}: {
+  score: number;
+  level: RiskScoreLevel;
+  confidence: Confidence;
+}) {
+  const shown = scoreLevels[level];
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className={`inline-flex items-center gap-2 font-medium whitespace-nowrap ${shown.tone}`}>
+        <span aria-hidden="true" className="flex items-end gap-0.5">
+          {[1, 2, 3, 4].map((bar) => (
+            <span
+              key={bar}
+              className={`h-3.5 w-1 rounded-sm bg-current ${bar > shown.bars ? "opacity-20" : ""}`}
+            />
+          ))}
+        </span>
+        {levelLabel(level)}
+      </span>
+      <span className="font-mono text-[0.8125rem] whitespace-nowrap tabular-nums">
+        {score}
+        <span className="text-muted">/100</span>
+      </span>
+      {confidence === "low" && (
+        <span className="rounded-full border border-caution/50 px-1.5 text-xs text-caution">
+          provisional
+        </span>
+      )}
+    </span>
+  );
+}
+
 // A completed run with no level is not a missing value: the analysis ran and
 // found nothing it could measure.
 export function InsufficientEvidence() {
@@ -217,14 +264,14 @@ function RunImpact({ run, state }: { run: AnalysisRun; state: RunState }) {
   );
 }
 
+// A run completed before scores existed shows the label it was given then.
 function RunRisk({ run }: { run: AnalysisRun }) {
-  return run.riskLevel ? (
-    <Risk level={run.riskLevel} />
-  ) : run.status === "completed" ? (
-    <InsufficientEvidence />
-  ) : (
-    <NotAvailable />
-  );
+  const { risk } = run;
+  if (risk?.kind === "score") {
+    return <RiskScore score={risk.score} level={risk.level} confidence={risk.confidence} />;
+  }
+  if (risk?.kind === "label") return <Risk level={risk.level} />;
+  return run.status === "completed" ? <InsufficientEvidence /> : <NotAvailable />;
 }
 
 function Requested({ run, inline = false }: { run: AnalysisRun; inline?: boolean }) {

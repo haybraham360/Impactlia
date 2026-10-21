@@ -18,6 +18,9 @@ export type PullRequestFile = {
   // The head-revision lines the patch adds. null when there is no patch or it
   // could not be read; for an added file every line is new either way.
   addedLines: LineRange[] | null;
+  // Where the patch removed lines, as head line numbers (see patch.ts). null
+  // exactly when addedLines is.
+  removedAt: number[] | null;
 };
 
 // Inclusive, 1-based line numbers.
@@ -162,13 +165,134 @@ export type CodeCheck = {
   omitted: number;
 };
 
+// ── Test recommendations ─────────────────────────────────────────────────────
+// Which existing tests relate to the change, what is worth testing, and where
+// no test was found. Nothing here was run: an existing test is a file found
+// through the graph or by name, and a scenario is inferred from the syntax on
+// changed lines.
+
+export type TestRecommendationKind =
+  | "existing_test"
+  | "suggested_scenario"
+  | "coverage_unknown"
+  | "test_command";
+export type Priority = "high" | "medium" | "low";
+export type Confidence = "high" | "medium" | "low";
+// "found": a test file that exists at the head commit. "suggested": a test
+// that may not exist. "unknown": nothing was found, which is not proof that
+// nothing exists.
+export type TestRecommendationStatus = "found" | "suggested" | "unknown";
+
+// How an existing test relates to the change, strongest first.
+export const TEST_RELATIONSHIPS = [
+  "imports-changed-symbol",
+  "imports-changed-file",
+  "changed-in-pull-request",
+  "imports-indirectly",
+  "name-only",
+] as const;
+export type TestRelationship = (typeof TEST_RELATIONSHIPS)[number];
+
+// Line numbers are of the head commit; null when no line applies.
+export type FileReference = { path: string; startLine: number | null; endLine: number | null };
+export type TestFileReference = FileReference & { relationshipEvidence: string | null };
+
+export type TestRecommendation = {
+  kind: TestRecommendationKind;
+  title: string;
+  description: string;
+  rationale: string;
+  priority: Priority;
+  status: TestRecommendationStatus;
+  confidence: Confidence;
+  // Existing tests only.
+  relationship: TestRelationship | null;
+  // A declaration read from the changed file, like "format" or "Cart.total".
+  symbol: string | null;
+  // What a scenario guards against, like "error handling".
+  riskAddressed: string | null;
+  // Changed files of this report.
+  relatedChangedFiles: FileReference[];
+  // Test files at the head commit.
+  relatedTestFiles: TestFileReference[];
+  // A command from the repository's own package.json, never run here.
+  command: string | null;
+  // Where to run it, repository-relative; "" is the root.
+  workingDirectory: string | null;
+  evidence: string[];
+};
+
+// What the search for tests covered, so that "none found" can be told apart
+// from "not looked for".
+export type TestDiscovery = {
+  // Files at the head commit treated as tests, and by which rule.
+  testFileCount: number;
+  conventions: { rule: string; count: number }[];
+  // Test runner packages those files import.
+  frameworks: string[];
+  // Found or suggested beyond the stored limits, by kind. The counts are
+  // complete; only the entries are left out.
+  omitted: { existing: number; scenarios: number; coverageUnknown: number };
+  // Why no coverage figures are used.
+  coverageData: string;
+  command: { found: boolean; detail: string };
+  // Changed files whose declarations could not be read, so that tests could
+  // be matched to the file but not to what in it changed.
+  symbolsUnread: { path: string; reason: string }[];
+};
+
+// ── Risk score ───────────────────────────────────────────────────────────────
+
+export type RiskScoreLevel = "low" | "moderate" | "high" | "very_high";
+
+export const RISK_FACTOR_IDS = [
+  "dependency-reach",
+  "critical-role",
+  "code-issues",
+  "test-evidence",
+  "change-size",
+  "config-or-schema",
+  "analysis-completeness",
+] as const;
+export type RiskFactorId = (typeof RISK_FACTOR_IDS)[number];
+
+// "increases_risk": measured, and it adds points. "none_found": measured,
+// and nothing was there. "reduces_uncertainty": measured, adds nothing, and
+// makes the picture clearer. "unknown": could not be measured, so it adds
+// nothing and is not treated as either good or bad.
+export type RiskFactorDirection =
+  | "increases_risk"
+  | "none_found"
+  | "reduces_uncertainty"
+  | "unknown";
+
+export type RiskFactor = {
+  factor: RiskFactorId;
+  direction: RiskFactorDirection;
+  explanation: string;
+  evidence: string[];
+  // Points added to the score. null when the factor was not measured.
+  contribution: number | null;
+};
+
+export type RiskAssessment = {
+  // Which version of the rules in score.ts produced this.
+  method: number;
+  // null with level null is "Insufficient evidence": no changed file could
+  // be matched to the graph, so there was nothing to measure.
+  score: number | null;
+  level: RiskScoreLevel | null;
+  summary: string;
+  factors: RiskFactor[];
+  confidence: Confidence;
+  // What lowered the confidence, one sentence each.
+  limitations: string[];
+};
+
 // What the graph says about a pull request.
 export type ImpactAnalysis = {
   // The commit the graph was built from, as the archive stated it.
   graphSha: string | null;
-  // null is "Insufficient evidence": no changed file could be matched to the
-  // graph, so there was nothing to measure.
-  riskLevel: RiskLevel | null;
   limitations: Limitation[];
   files: ReportFile[];
   dependencies: ReportDependency[];
@@ -181,4 +305,7 @@ export type ImpactAnalysis = {
 export type ImpactReport = ImpactAnalysis & {
   codeIssues: CodeIssue[];
   codeCheck: CodeCheck;
+  testRecommendations: TestRecommendation[];
+  testDiscovery: TestDiscovery;
+  risk: RiskAssessment;
 };

@@ -1,14 +1,23 @@
 import "server-only";
 import type { PullRequest } from "@/lib/github/pull-request";
 import { ISSUE_LIMIT } from "@/lib/impact/code-issues";
-import type {
-  CodeCheck,
-  CodeIssue,
-  ImpactReport,
-  Limitation,
-  RelatedFile,
-  RiskLevel,
-  SignalDetail,
+import {
+  RISK_FACTOR_IDS,
+  type CodeCheck,
+  type CodeIssue,
+  type Confidence,
+  type FileReference,
+  type ImpactReport,
+  type Limitation,
+  type RelatedFile,
+  type RiskAssessment,
+  type RiskFactor,
+  type RiskLevel,
+  type RiskScoreLevel,
+  type SignalDetail,
+  type TestDiscovery,
+  type TestFileReference,
+  type TestRecommendation,
 } from "@/lib/impact/report";
 import {
   STALE_AFTER_MS,
@@ -27,6 +36,14 @@ import { createSupabaseClient, type SupabaseClient } from "@/lib/supabase/server
 type Enums = Database["public"]["Enums"];
 export type AnalysisStatus = Enums["analysis_status"];
 
+// A completed analysis has a score, or, if it was completed before scores
+// existed, the three-level label it was given then. null is "Insufficient
+// evidence" on a completed run, and no result yet on any other.
+export type RunRisk =
+  | { kind: "score"; score: number; level: RiskScoreLevel; confidence: Confidence }
+  | { kind: "label"; level: RiskLevel }
+  | null;
+
 export type AnalysisRun = {
   id: string;
   status: AnalysisStatus;
@@ -35,7 +52,7 @@ export type AnalysisRun = {
   // Unfinished, with no progress recorded inside the stale window, as of the
   // moment the row was read.
   stale: boolean;
-  riskLevel: RiskLevel | null;
+  risk: RunRisk;
   changedFileCount: number | null;
   affectedFileCount: number | null;
   failureReason: string | null;
@@ -57,6 +74,7 @@ export type AnalysisRun = {
 };
 
 const RUN_COLUMNS = `id, status, stage, last_completed_stage, risk_level,
+  risk_score, risk_score_level, risk_confidence,
   changed_file_count, affected_file_count, failure_reason, base_sha, head_sha,
   graph_sha, created_at, progressed_at, completed_at,
   pull_request:pull_requests!inner (
@@ -70,6 +88,9 @@ type RunRow = {
   stage: AnalysisStageId;
   last_completed_stage: AnalysisStageId | null;
   risk_level: RiskLevel | null;
+  risk_score: number | null;
+  risk_score_level: RiskScoreLevel | null;
+  risk_confidence: Confidence | null;
   changed_file_count: number | null;
   affected_file_count: number | null;
   failure_reason: string | null;
@@ -96,7 +117,17 @@ const toRun = (row: RunRow): AnalysisRun => ({
   stage: row.stage,
   lastCompletedStage: row.last_completed_stage,
   stale: isAnalysisStale({ status: row.status, progressedAt: row.progressed_at }, Date.now()),
-  riskLevel: row.risk_level,
+  risk:
+    row.risk_score !== null && row.risk_score_level !== null
+      ? {
+          kind: "score",
+          score: row.risk_score,
+          level: row.risk_score_level,
+          confidence: row.risk_confidence ?? "low",
+        }
+      : row.risk_level !== null
+        ? { kind: "label", level: row.risk_level }
+        : null,
   changedFileCount: row.changed_file_count,
   affectedFileCount: row.affected_file_count,
   failureReason: row.failure_reason,
@@ -209,6 +240,10 @@ export type StoredReport = {
   // null for an analysis completed before code checks existed: nothing was
   // checked, which is not the same as nothing found.
   codeCheck: CodeCheck | null;
+  // Both null for an analysis completed before they existed.
+  risk: RiskAssessment | null;
+  testDiscovery: TestDiscovery | null;
+  testRecommendations: TestRecommendation[];
   // Earlier and later analyses of the same pull request, newest first.
   otherRuns: {
     id: string;
@@ -223,6 +258,8 @@ export type StoredReport = {
 export const CHANGED_FILE_LIMIT = 1000;
 export const AFFECTED_FILE_LIMIT = 500;
 const FINDING_LIMIT = 50;
+// Every stored recommendation: the analysis keeps at most 30 + 1 + 12 + 15.
+const TEST_RECOMMENDATION_LIMIT = 100;
 const EVIDENCE_LIMIT = 1000;
 const OTHER_RUN_LIMIT = 10;
 
@@ -283,11 +320,122 @@ function readCodeCheck(value: Json | null): CodeCheck | null {
   };
 }
 
+const isLine = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 1;
+const textOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+function readFileReferences(value: Json): TestFileReference[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) =>
+    isRecord(entry) && typeof entry.path === "string"
+      ? [
+          {
+            path: entry.path,
+            startLine: isLine(entry.startLine) ? entry.startLine : null,
+            endLine: isLine(entry.endLine) ? entry.endLine : null,
+            relationshipEvidence: textOrNull(entry.relationshipEvidence),
+          },
+        ]
+      : [],
+  );
+}
+
+const changedReferences = (value: Json): FileReference[] =>
+  readFileReferences(value).map(({ path, startLine, endLine }) => ({ path, startLine, endLine }));
+
+const CONFIDENCES: readonly Confidence[] = ["high", "medium", "low"];
+const SCORE_LEVELS: readonly RiskScoreLevel[] = ["low", "moderate", "high", "very_high"];
+const DIRECTIONS: readonly RiskFactor["direction"][] = [
+  "increases_risk",
+  "none_found",
+  "reduces_uncertainty",
+  "unknown",
+];
+const oneOf = <T extends string>(values: readonly T[], value: unknown): T | null =>
+  values.find((known) => known === value) ?? null;
+
+function readRiskAssessment(value: Json | null): RiskAssessment | null {
+  if (!isRecord(value) || typeof value.summary !== "string" || !Array.isArray(value.factors)) {
+    return null;
+  }
+  const score = typeof value.score === "number" ? value.score : null;
+  const level = oneOf(SCORE_LEVELS, value.level);
+  const factors: RiskFactor[] = value.factors.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const factor = oneOf(RISK_FACTOR_IDS, entry.factor);
+    const direction = oneOf(DIRECTIONS, entry.direction);
+    if (!factor || !direction || typeof entry.explanation !== "string") return [];
+    return [
+      {
+        factor,
+        direction,
+        explanation: entry.explanation,
+        evidence: strings(entry.evidence),
+        contribution: typeof entry.contribution === "number" ? entry.contribution : null,
+      },
+    ];
+  });
+  return {
+    method: typeof value.method === "number" ? value.method : 0,
+    score: level ? score : null,
+    level: score !== null ? level : null,
+    summary: value.summary,
+    factors,
+    confidence: oneOf(CONFIDENCES, value.confidence) ?? "low",
+    limitations: strings(value.limitations),
+  };
+}
+
+function readTestDiscovery(value: Json | null): TestDiscovery | null {
+  if (!isRecord(value)) return null;
+  const conventions = Array.isArray(value.conventions) ? value.conventions : [];
+  const omitted = isRecord(value.omitted) ? value.omitted : {};
+  const command = isRecord(value.command) ? value.command : {};
+  const unread = Array.isArray(value.symbolsUnread) ? value.symbolsUnread : [];
+  return {
+    testFileCount: isCount(value.testFileCount) ? value.testFileCount : 0,
+    conventions: conventions.flatMap((entry) =>
+      isRecord(entry) && typeof entry.rule === "string" && isCount(entry.count)
+        ? [{ rule: entry.rule, count: entry.count }]
+        : [],
+    ),
+    frameworks: strings(value.frameworks),
+    omitted: {
+      existing: isCount(omitted.existing) ? omitted.existing : 0,
+      scenarios: isCount(omitted.scenarios) ? omitted.scenarios : 0,
+      coverageUnknown: isCount(omitted.coverageUnknown) ? omitted.coverageUnknown : 0,
+    },
+    coverageData: typeof value.coverageData === "string" ? value.coverageData : "",
+    command: {
+      found: command.found === true,
+      detail: typeof command.detail === "string" ? command.detail : "",
+    },
+    symbolsUnread: unread.flatMap((entry) =>
+      isRecord(entry) && typeof entry.path === "string" && typeof entry.reason === "string"
+        ? [{ path: entry.path, reason: entry.reason }]
+        : [],
+    ),
+  };
+}
+
 export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
   const client = createSupabaseClient();
-  const [analysis, changed, affected, signals, recommendations, evidence, codeIssues, otherRuns] =
-    await Promise.all([
-      client.from("analyses").select("limitations, code_check").eq("id", run.id).single(),
+  const [
+    analysis,
+    changed,
+    affected,
+    signals,
+    recommendations,
+    evidence,
+    codeIssues,
+    testRecommendations,
+    otherRuns,
+  ] = await Promise.all([
+      client
+        .from("analyses")
+        .select("limitations, code_check, risk_assessment, test_discovery")
+        .eq("id", run.id)
+        .single(),
       client
         .from("analysis_files")
         .select(
@@ -332,6 +480,14 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
         .order("position")
         .limit(ISSUE_LIMIT),
       client
+        .from("analysis_test_recommendations")
+        .select(
+          "kind, title, description, rationale, priority, status, confidence, relationship, symbol, risk_addressed, related_changed_files, related_test_files, command, working_directory, evidence",
+        )
+        .eq("analysis_id", run.id)
+        .order("position")
+        .limit(TEST_RECOMMENDATION_LIMIT),
+      client
         .from("analyses")
         .select("id, status, head_sha, created_at")
         .eq("pull_request_id", run.pullRequest.id)
@@ -347,6 +503,7 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
     recommendations,
     evidence,
     codeIssues,
+    testRecommendations,
     otherRuns,
   ].find(
     (result) => result.error,
@@ -411,6 +568,25 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
       relatedFileCount: row.related_file_count,
     })),
     codeCheck: readCodeCheck(analysis.data?.code_check ?? null),
+    risk: readRiskAssessment(analysis.data?.risk_assessment ?? null),
+    testDiscovery: readTestDiscovery(analysis.data?.test_discovery ?? null),
+    testRecommendations: (testRecommendations.data ?? []).map((row) => ({
+      kind: row.kind,
+      title: row.title,
+      description: row.description,
+      rationale: row.rationale,
+      priority: row.priority,
+      status: row.status,
+      confidence: row.confidence,
+      relationship: row.relationship,
+      symbol: row.symbol,
+      riskAddressed: row.risk_addressed,
+      relatedChangedFiles: changedReferences(row.related_changed_files),
+      relatedTestFiles: readFileReferences(row.related_test_files),
+      command: row.command,
+      workingDirectory: row.working_directory,
+      evidence: strings(row.evidence),
+    })),
     otherRuns: (otherRuns.data ?? []).map((row) => ({
       id: row.id,
       status: row.status,

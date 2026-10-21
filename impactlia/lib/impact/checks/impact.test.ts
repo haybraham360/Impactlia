@@ -35,6 +35,7 @@ const change = (file: string, changeType: ChangeType = "modified") => ({
   deletions: 1,
   patchAvailable: true,
   addedLines: null,
+  removedAt: null,
 });
 
 const changes = (...files: ReturnType<typeof change>[]): PullRequestChanges => ({
@@ -149,7 +150,6 @@ test("signals carry the measurements that triggered them", () => {
       ["incomplete-coverage", "medium"],
     ],
   );
-  assert.equal(report.riskLevel, "medium");
   assert.match(report.signals[0].detail.facts[0], /^5 files import/);
   assert.deepEqual(
     report.limitations.map((limitation) => limitation.id),
@@ -157,17 +157,19 @@ test("signals carry the measurements that triggered them", () => {
   );
 });
 
-test("with nothing to trace and nothing missing, the level is low and no signal is raised", () => {
+test("with nothing to trace and nothing missing, no signal is raised", () => {
   const report = analyseImpact(repository, changes(change("src/new.ts", "added")), "a".repeat(40));
-  assert.equal(report.riskLevel, "low");
   assert.deepEqual(report.signals, []);
   assert.deepEqual(report.limitations, []);
   assert.deepEqual(affectedOf(report.files), []);
 });
 
-test("when no changed file is in the graph there is no level at all", () => {
+test("when no changed file is in the graph nothing is traced", () => {
   const report = analyseImpact(repository, changes(change("README.md")), null);
-  assert.equal(report.riskLevel, null);
+  assert.deepEqual(
+    report.signals.map((signal) => [signal.signal, signal.level]),
+    [["incomplete-coverage", "low"]],
+  );
   assert.deepEqual(affectedOf(report.files), []);
 });
 
@@ -181,10 +183,12 @@ test("an incomplete file list is a limitation and a signal", () => {
   assert.equal(report.signals.find((signal) => signal.signal === "incomplete-coverage")?.level, "medium");
 });
 
-test("suggested checks name the test files that reach the change", () => {
+test("suggested checks leave tests to the test recommendations", () => {
   const report = analyseImpact(repository, pullRequest, null);
-  assert.deepEqual(report.recommendations[0].evidence, ["src/format.test.ts"]);
-  assert.deepEqual(report.recommendations.at(-1)?.evidence, ["README.md", "src/gone.ts"]);
+  assert.deepEqual(
+    report.recommendations.map((recommendation) => recommendation.evidence),
+    [["README.md", "src/gone.ts"]],
+  );
 });
 
 test("the same inputs give the same report whatever order they arrive in", () => {
@@ -209,5 +213,4 @@ test("the direct-dependents and reach thresholds are the documented ones", () =>
       ["transitive-reach", "medium"],
     ],
   );
-  assert.equal(report.riskLevel, "high");
 });

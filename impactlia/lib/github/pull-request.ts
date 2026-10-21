@@ -1,5 +1,5 @@
 import { IngestionError } from "../ingestion/errors";
-import { addedLines } from "../impact/patch";
+import { readPatch } from "../impact/patch";
 import type { ChangeType, PullRequestChanges, PullRequestFile } from "../impact/report";
 import { HEADERS, REQUEST_TIMEOUT_MS, refusal, repositoryApi, request } from "./public-repository";
 import type { RepositoryReference } from "./repository-url";
@@ -150,6 +150,11 @@ const CHANGE_TYPES: Record<string, ChangeType> = {
   removed: "removed",
 };
 
+function linesOf(patch: unknown): Pick<PullRequestFile, "addedLines" | "removedAt"> {
+  const lines = typeof patch === "string" ? readPatch(patch) : null;
+  return { addedLines: lines?.added ?? null, removedAt: lines?.removedAt ?? null };
+}
+
 function readFile(value: unknown): PullRequestFile | null {
   const body = fields(value, "changed file");
   const status = text(body.status, "a changed file's status", 40);
@@ -169,7 +174,7 @@ function readFile(value: unknown): PullRequestFile | null {
     // Whether there is one, and the line numbers it adds. The patch's text
     // is not kept.
     patchAvailable: typeof body.patch === "string",
-    addedLines: typeof body.patch === "string" ? addedLines(body.patch) : null,
+    ...linesOf(body.patch),
   };
 }
 

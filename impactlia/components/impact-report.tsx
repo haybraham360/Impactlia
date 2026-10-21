@@ -1,8 +1,10 @@
-import { Impact, InsufficientEvidence, Risk } from "@/components/analysis-run-list";
+import { Impact, InsufficientEvidence, Risk, RiskScore } from "@/components/analysis-run-list";
 import { CodeIssues, affectedFileAnchor } from "@/components/code-issues";
+import { RiskAssessmentDetail } from "@/components/risk-assessment";
+import { TestRecommendations } from "@/components/test-recommendations";
 import type { ReactNode } from "react";
 import type { RiskLevel } from "@/lib/impact/report";
-import { IMPACT_DEPTH, LEVEL_RULE, SIGNALS } from "@/lib/impact/risk";
+import { IMPACT_DEPTH, SIGNALS } from "@/lib/impact/risk";
 import {
   AFFECTED_FILE_LIMIT,
   CHANGED_FILE_LIMIT,
@@ -19,7 +21,8 @@ import { SIGNAL_IDS, type SignalId } from "@/lib/impact/report";
 //
 // Three things are kept visibly apart throughout: what the pull request
 // changed (a fact from GitHub), what it could affect (files reached through
-// real imports), and what is suggested (recommendations, never results).
+// real imports), and what is suggested (recommendations and test scenarios,
+// never results).
 
 const numberFormat = new Intl.NumberFormat("en");
 
@@ -291,6 +294,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
   const changedTotal = run.changedFileCount ?? report.changed.length;
   const affectedTotal = run.affectedFileCount ?? report.affected.length;
   const unanalysed = report.changed.filter((file) => !file.analysed);
+  const { risk } = run;
 
   return (
     <>
@@ -298,9 +302,17 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
         <div aria-hidden="true" className="panel-glow pointer-events-none absolute inset-0" />
         <dl className="relative grid gap-x-10 gap-y-5 px-5 py-5 text-sm sm:grid-cols-[auto_1fr] sm:px-6">
           <div>
-            <dt className="mb-1.5 text-xs text-muted">Risk label</dt>
+            <dt className="mb-1.5 text-xs text-muted">Risk</dt>
             <dd className="text-lg">
-              {run.riskLevel ? <Risk level={run.riskLevel} /> : <InsufficientEvidence />}
+              {risk?.kind === "score" ? (
+                <a href="#risk" className="hover:underline">
+                  <RiskScore score={risk.score} level={risk.level} confidence={risk.confidence} />
+                </a>
+              ) : risk?.kind === "label" ? (
+                <Risk level={risk.level} />
+              ) : (
+                <InsufficientEvidence />
+              )}
             </dd>
           </div>
           <div>
@@ -335,9 +347,11 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
           </p>
         )}
         <p className="relative border-t border-line px-5 py-3 text-sm text-muted sm:px-6">
-          {run.riskLevel
-            ? "The label is a way to decide what to look at first, worked out from the signals below by fixed rules. It is not a measured probability that anything breaks."
-            : "No changed file could be matched to the graph, so there was nothing to measure and no label is given. That is not the same as low risk."}{" "}
+          {risk?.kind === "score"
+            ? `${report.risk?.summary ?? ""} The score is a way to decide what to look at first, added up from documented factors. It is not calibrated against real outcomes, and a low score does not mean the change is safe.`
+            : risk?.kind === "label"
+              ? "The label is a way to decide what to look at first, worked out from the signals below by fixed rules. It is not a measured probability that anything breaks."
+              : "No changed file could be matched to the graph, so there was nothing to measure and no score is given. That is not the same as low risk."}{" "}
           A file that could be affected is one that imports changed code. It is not known to be
           broken, and Impactlia has run no tests.
         </p>
@@ -345,15 +359,29 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
 
       <ReportNav
         items={[
+          {
+            href: "#risk",
+            label: "Risk score",
+            count: report.risk?.factors.filter((factor) => (factor.contribution ?? 0) > 0).length ?? 0,
+          },
           { href: "#signals", label: "Risk signals", count: report.signals.length },
           { href: "#changed", label: "Changed", count: changedTotal },
           { href: "#affected", label: "Potentially affected", count: affectedTotal },
           { href: "#code-issues", label: "Code issues", count: report.codeIssues.length },
+          { href: "#tests", label: "Recommended tests", count: report.testRecommendations.length },
           { href: "#not-analysed", label: "Not analysed", count: unanalysed.length },
           { href: "#coverage", label: "Limitations", count: report.limitations.length },
           { href: "#checks", label: "Suggested checks", count: report.recommendations.length },
         ]}
       />
+
+      <Section
+        id="risk"
+        title="Risk score"
+        note="Each factor that added points, with the measurements behind it, then the factors that added none. A factor that could not be measured adds nothing."
+      >
+        <RiskAssessmentDetail risk={report.risk} />
+      </Section>
 
       <Section
         id="signals"
@@ -391,8 +419,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
           </ul>
         )}
         <details className="mt-3 rounded-xl border border-line px-5 py-3 text-sm">
-          <summary className="cursor-pointer font-medium">How the label is worked out</summary>
-          <p className="mt-3 max-w-prose">{LEVEL_RULE}</p>
+          <summary className="cursor-pointer font-medium">How each signal is decided</summary>
           <dl className="mt-3 space-y-3">
             {SIGNAL_IDS.map((id) => (
               <div key={id}>
@@ -435,6 +462,19 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
           issues={report.codeIssues}
           check={report.codeCheck}
           changed={new Set(report.changed.map((file) => file.path))}
+          affected={new Set(report.affected.map((file) => file.path))}
+        />
+      </Section>
+
+      <Section
+        id="tests"
+        title={`Recommended tests (${numberFormat.format(report.testRecommendations.length)})`}
+        note="Existing tests tied to the change through real imports, scenarios inferred from the lines it adds, and changed files no test was found for. Impactlia has run none of them."
+      >
+        <TestRecommendations
+          run={run}
+          recommendations={report.testRecommendations}
+          discovery={report.testDiscovery}
           affected={new Set(report.affected.map((file) => file.path))}
         />
       </Section>

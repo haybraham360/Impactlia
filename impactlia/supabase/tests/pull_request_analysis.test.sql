@@ -134,6 +134,9 @@ declare
                  "additions": 1, "deletions": 0, "previousPath": null,
                  "patchAvailable": true, "analysisState": "analysed", "stateReason": null}],
       "dependencies": [], "signals": [], "recommendations": [],
+      "risk": {"method": 1, "score": 30, "level": "moderate", "summary": "s", "factors": [],
+               "confidence": "medium", "limitations": []},
+      "testDiscovery": {"testFileCount": 0}, "testRecommendations": [],
       "codeCheck": {"checked": [], "skipped": [], "setAside": [], "omitted": 0}';
   issue text := '{"title": "Type error", "category": "type", "severity": "medium",
       "status": "confirmed", "source": "compiler", "ruleId": "TS2322", "startLine": 1,
@@ -155,6 +158,41 @@ begin
     'a refused report still changed the run';
   assert not exists (select 1 from public.analysis_code_issues where analysis_id = analysis),
     'a refused report left code issues behind';
+end;
+$$;
+
+-- ── A test recommendation must name only changed files of the result ───────
+do $$
+declare
+  analysis uuid := (select id from checks.ids where name = 'analysis');
+  base text := '{"graphSha": null, "riskLevel": null, "limitations": [],
+      "files": [{"kind": "changed", "path": "src/a.ts", "changeType": "modified",
+                 "additions": 1, "deletions": 0, "previousPath": null,
+                 "patchAvailable": true, "analysisState": "analysed", "stateReason": null}],
+      "dependencies": [], "signals": [], "recommendations": [], "codeIssues": [],
+      "codeCheck": {"checked": [], "skipped": [], "setAside": [], "omitted": 0},
+      "risk": {"score": 15, "level": "low", "confidence": "high", "factors": [], "summary": "s"},
+      "testDiscovery": {}';
+  recommendation text := '{"kind": "coverage_unknown", "title": "t", "description": "d",
+      "rationale": "r", "priority": "low", "status": "unknown", "confidence": "medium",
+      "relationship": null, "symbol": null, "riskAddressed": null, "relatedTestFiles": [],
+      "command": null, "workingDirectory": null, "evidence": [], ';
+  outcome text;
+begin
+  outcome := checks.error_of(format($q$select public.complete_analysis(%L, %L::jsonb)$q$, analysis,
+    base || ', "testRecommendations": [' || recommendation
+      || '"relatedChangedFiles": [{"path": "src/elsewhere.ts", "startLine": null, "endLine": null}]}]}'));
+  assert outcome = '23514', format('a recommendation naming an unknown file was accepted (%s)', outcome);
+  outcome := checks.error_of(format($q$select public.complete_analysis(%L, %L::jsonb)$q$, analysis,
+    base || '}'));
+  assert outcome = '23514', format('a report without test recommendations was accepted (%s)', outcome);
+  outcome := checks.error_of(format($q$select public.complete_analysis(%L, %L::jsonb)$q$, analysis,
+    replace(base, '"risk": {"score": 15', '"risk": {"score": 101') || ', "testRecommendations": []}'));
+  assert outcome = '23514', format('a score over 100 was accepted (%s)', outcome);
+  assert (select status = 'running' from public.analyses where id = analysis),
+    'a refused report still changed the run';
+  assert not exists (select 1 from public.analysis_test_recommendations where analysis_id = analysis),
+    'a refused report left test recommendations behind';
 end;
 $$;
 
@@ -204,7 +242,29 @@ select public.complete_analysis(
        "relatedFiles": [{"path": "src/format.ts", "relationship": "import", "typeOnly": false}],
        "relatedFileCount": 1}
     ],
-    "codeCheck": {"checked": ["src/core.ts"], "skipped": [], "setAside": [], "omitted": 0}
+    "codeCheck": {"checked": ["src/core.ts"], "skipped": [], "setAside": [], "omitted": 0},
+    "risk": {"method": 1, "score": 30, "level": "moderate", "summary": "Moderate risk, 30 of 100.",
+             "factors": [{"factor": "dependency-reach", "direction": "increases_risk",
+                          "explanation": "e", "evidence": [], "contribution": 30}],
+             "confidence": "medium", "limitations": ["Removed files cannot be traced."]},
+    "testDiscovery": {"testFileCount": 1, "conventions": [], "frameworks": [],
+                      "omitted": {"existing": 0, "scenarios": 0, "coverageUnknown": 0},
+                      "coverageData": "c", "command": {"found": false, "detail": "d"},
+                      "symbolsUnread": []},
+    "testRecommendations": [
+      {"kind": "existing_test", "title": "src/format.test.ts", "description": "d", "rationale": "r",
+       "priority": "high", "status": "found", "confidence": "high",
+       "relationship": "imports-changed-symbol", "symbol": "core", "riskAddressed": "regression",
+       "relatedChangedFiles": [{"path": "src/core.ts", "startLine": 1, "endLine": 3}],
+       "relatedTestFiles": [{"path": "src/format.test.ts", "startLine": 1, "endLine": 1,
+                             "relationshipEvidence": "Imports core."}],
+       "command": null, "workingDirectory": null, "evidence": ["Imports core."]},
+      {"kind": "suggested_scenario", "title": "Both outcomes", "description": "d", "rationale": "r",
+       "priority": "medium", "status": "suggested", "confidence": "medium",
+       "relationship": null, "symbol": "core", "riskAddressed": "regression",
+       "relatedChangedFiles": [{"path": "src/core.ts", "startLine": 2, "endLine": 2}],
+       "relatedTestFiles": [], "command": null, "workingDirectory": null, "evidence": []}
+    ]
   }$report$::jsonb
 );
 
@@ -283,6 +343,20 @@ begin
   assert (select code_check -> 'checked' ->> 0 = 'src/core.ts' from public.analyses where id = analysis),
     'the code check was not stored';
 
+  -- The score and the test recommendations belong to this run, and so to its
+  -- head commit.
+  assert (
+    select risk_score = 30 and risk_score_level = 'moderate' and risk_confidence = 'medium'
+      and risk_assessment ->> 'summary' = 'Moderate risk, 30 of 100.'
+      and test_discovery ->> 'testFileCount' = '1'
+    from public.analyses where id = analysis
+  ), 'the risk score or test discovery was not stored';
+  assert (
+    select array_agg(kind::text order by position) = array['existing_test', 'suggested_scenario']
+      and bool_and(related_changed_files -> 0 ->> 'path' = 'src/core.ts')
+    from public.analysis_test_recommendations where analysis_id = analysis
+  ), 'test recommendations lost their order or files';
+
   -- A finished analysis never changes again.
   outcome := checks.error_of(format(
     $q$update public.analyses set failure_reason = 'x', status = 'failed' where id = %L$q$, analysis));
@@ -349,6 +423,8 @@ begin
   assert not exists (select 1 from public.analysis_recommendations), 'another organization can read recommendations';
   assert not exists (select 1 from public.analysis_evidence), 'another organization can read evidence';
   assert not exists (select 1 from public.analysis_code_issues), 'another organization can read code issues';
+  assert not exists (select 1 from public.analysis_test_recommendations),
+    'another organization can read test recommendations';
   -- Still set to the first organization's topic.
   assert not exists (select 1 from realtime.messages), 'another organization can join the run''s topic';
 
@@ -379,6 +455,12 @@ begin
        select 'org_first', %L, gen_random_uuid(), 9, 't', 'type', 'low', 'confirmed', 'compiler',
          1, 'm', 'c'$q$, analysis));
   assert outcome = '42501', format('a code issue was written into another organization (%s)', outcome);
+  outcome := checks.error_of(format(
+    $q$insert into public.analysis_test_recommendations (organization_id, analysis_id, position,
+         kind, title, description, rationale, priority, status, confidence)
+       values ('org_first', %L, 9, 'suggested_scenario', 't', 'd', 'r', 'low', 'suggested', 'low')$q$,
+    analysis));
+  assert outcome = '42501', format('a test recommendation was written into another organization (%s)', outcome);
 end;
 $$;
 

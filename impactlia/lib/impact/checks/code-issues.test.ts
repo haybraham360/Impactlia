@@ -33,6 +33,7 @@ function change(
     deletions: 0,
     patchAvailable: addedLines !== null,
     addedLines,
+    removedAt: addedLines === null ? null : [],
   };
 }
 

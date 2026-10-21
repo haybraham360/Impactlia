@@ -9,7 +9,10 @@ import type { RepositoryReference } from "@/lib/github/repository-url";
 import { calculateBlastRadius, mapChangedFiles, scoreImpact } from "@/lib/impact/analyze";
 import { collectCodeIssues, planCodeCheck } from "@/lib/impact/code-issues";
 import type { ImpactReport } from "@/lib/impact/report";
+import { repositoryFiles } from "@/lib/impact/repository-files";
 import { advanceAnalysis, completeAnalysis, failAnalysis } from "@/lib/impact/runs";
+import { assessRisk } from "@/lib/impact/score";
+import { recommendTests } from "@/lib/impact/tests";
 import { typeCheckFiles } from "@/lib/impact/type-check";
 import {
   PROCESSING_LIMIT_MS,
@@ -109,11 +112,29 @@ export async function runImpactPipeline(
     const plan = planCodeCheck(graph, changes, mapping);
     const outcomes = typeCheckFiles(source, plan.targets);
     const code = collectCodeIssues(graph, changes, radius.index, plan, outcomes);
-    const report: ImpactReport = {
-      ...analysis,
-      limitations: [...analysis.limitations, ...code.limitations],
+
+    // Test files are read as text from the same unpacked commit, and the
+    // score is weighed last, once every factor it uses is known.
+    await enter("recommending");
+    const tests = recommendTests(graph, changes, mapping, radius, repositoryFiles(source));
+    const limitations = [...analysis.limitations, ...code.limitations, ...tests.limitations];
+    const risk = assessRisk({
+      changes,
+      mapping,
+      signals: analysis.signals,
       codeIssues: code.issues,
       codeCheck: code.check,
+      tests: tests.evidence,
+      limitations,
+    });
+    const report: ImpactReport = {
+      ...analysis,
+      limitations,
+      codeIssues: code.issues,
+      codeCheck: code.check,
+      testRecommendations: tests.recommendations,
+      testDiscovery: tests.discovery,
+      risk,
     };
 
     await enter("saving");

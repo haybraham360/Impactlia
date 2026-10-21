@@ -44,6 +44,12 @@ export const ANALYSIS_STAGES = [
       "Type-checking the changed files under the repository's own tsconfig. The compiler reads the code; nothing in it is run.",
   },
   {
+    id: "recommending",
+    label: "Finding related tests",
+    message:
+      "Reading the test files that import the changed code and the repository's test script, then weighing the risk factors. No test is run.",
+  },
+  {
     id: "saving",
     label: "Saving report",
     message: "Storing the report and the result of this run.",

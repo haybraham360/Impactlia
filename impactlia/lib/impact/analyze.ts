@@ -28,7 +28,6 @@ import {
   REACH_MEDIUM,
   SHARED_MODULE_DEPENDENTS,
   SIGNALS,
-  highestLevel,
 } from "./risk";
 
 // The impact of a pull request, worked out from two things and nothing else:
@@ -204,7 +203,9 @@ export function calculateBlastRadius(output: ParserOutput, starts: readonly stri
   return { index, traversal, affected, dependencies };
 }
 
-// Step three: apply the documented rules to what the first two steps found.
+// Step three: apply the documented signal rules to what the first two steps
+// found. The score that weighs them is worked out later, in score.ts, once the
+// code checks and the search for tests have run too.
 export function scoreImpact(
   output: ParserOutput,
   changes: PullRequestChanges,
@@ -360,23 +361,8 @@ export function scoreImpact(
     recommendations.push({ body, reason, evidence: evidence.slice(0, EVIDENCE_LIMIT) });
   };
 
-  const tests = traversal.reached
-    .filter((entry) => nodeById.get(entry.file)?.role.id === "test")
-    .map((entry) => pathOf(entry.file));
-  if (tests.length > 0) {
-    recommend(
-      `Run the ${plural(tests.length, "test file", "test files")} that import the changed code.`,
-      `They are in the potentially affected set, directly or through other files: ${named(tests)}.`,
-      tests,
-    );
-  } else if (affected.length > 0) {
-    const nearest = affected.filter((file) => file.impactDepth === 1).map((file) => file.path);
-    recommend(
-      "Check the files that import the changed code directly by hand.",
-      `No file with a test name (*.test.*, *.spec.*, __tests__/) imports the changed code within ${IMPACT_DEPTH} imports. The direct importers are: ${named(nearest)}.`,
-      nearest,
-    );
-  }
+  // Which tests relate to the change is worked out in tests.ts, from the
+  // test files' own imports, and reported in its own section.
 
   const inImpactSet = new Set([...startPaths, ...affected.map((file) => file.path)]);
   const routes = output.routes.filter((route) => inImpactSet.has(route.file));
@@ -493,9 +479,6 @@ export function scoreImpact(
 
   return {
     graphSha,
-    // With no changed file in the graph nothing was measured, so no level is
-    // given at all rather than a reassuring "low".
-    riskLevel: starts.length === 0 ? null : (highestLevel(signals.map((signal) => signal.level)) ?? "low"),
     limitations,
     files: [...changed, ...affected],
     dependencies,
