@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AnalyzeButton, AnalyzeNumberForm } from "@/components/analyze-forms";
+import { AutomaticAnalysis } from "@/components/automatic-analysis";
 import { EmptyState } from "@/components/empty-state";
 import { ArrowRightIcon, CheckIcon, PullRequestIcon, RepositoryIcon } from "@/components/icons";
 import {
@@ -10,6 +11,7 @@ import {
 } from "@/lib/github/pull-request";
 import { repositoryUrl } from "@/lib/github/repository-url";
 import { getRepositoryIdentity, type RepositoryIdentity } from "@/lib/impact/runs";
+import { isConnectOutcome } from "@/lib/automation/status";
 import { IngestionError } from "@/lib/ingestion/errors";
 import { listRepositories } from "@/lib/ingestion/runs";
 import { PULL_REQUESTS_PATH, WORKSPACE_PATH, pullRequestsPath } from "@/lib/routes";
@@ -237,7 +239,7 @@ async function Picker({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await getWorkspace();
-  const { repository: requested } = await searchParams;
+  const { repository: requested, github } = await searchParams;
   if (typeof requested !== "string") {
     return (
       <>
@@ -284,6 +286,10 @@ async function Picker({
           Choose another repository
         </Link>
       </div>
+      <AutomaticAnalysis
+        repository={repository}
+        outcome={isConnectOutcome(github) ? github : null}
+      />
       <h2 className="mb-3 text-lg font-semibold">Open pull requests</h2>
       <Suspense fallback={<RowsFallback />}>
         <OpenPullRequests repository={repository} />

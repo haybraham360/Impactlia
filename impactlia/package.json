@@ -13,6 +13,7 @@
     "check:ingestion": "tsc -p lib/ingestion/checks/tsconfig.json && node --test \"$PWD\"/node_modules/.cache/impactlia-ingestion-checks/lib/ingestion/checks/ingestion.test.js",
     "check:ai": "tsc -p lib/ai/checks/tsconfig.json && node --test \"$PWD\"/node_modules/.cache/impactlia-ai-checks/lib/ai/checks/ai.test.js",
     "check:impact": "tsc -p lib/impact/checks/tsconfig.json && node --test \"$PWD\"/node_modules/.cache/impactlia-impact-checks/lib/impact/checks/impact.test.js \"$PWD\"/node_modules/.cache/impactlia-impact-checks/lib/impact/checks/code-issues.test.js \"$PWD\"/node_modules/.cache/impactlia-impact-checks/lib/impact/checks/tests.test.js \"$PWD\"/node_modules/.cache/impactlia-impact-checks/lib/impact/checks/score.test.js",
+    "check:automation": "tsc -p lib/automation/checks/tsconfig.json && node --test \"$PWD\"/node_modules/.cache/impactlia-automation-checks/lib/automation/checks/automation.test.js",
     "check:database": "sh supabase/tests/run.sh"
   },
   "dependencies": {

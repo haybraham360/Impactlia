@@ -1,6 +1,10 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { CHOOSE_ORGANIZATION_PATH } from "@/lib/routes";
+import {
+  AUTOMATION_SWEEP_PATH,
+  CHOOSE_ORGANIZATION_PATH,
+  GITHUB_WEBHOOK_PATH,
+} from "@/lib/routes";
 
 // Everything is protected unless it is listed here, so a route added in a
 // later phase is private by default.
@@ -10,6 +14,10 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/__clerk(.*)",
+  // Called by GitHub and by Vercel Cron. Each checks its own secret: the
+  // webhook signature and the cron bearer token.
+  GITHUB_WEBHOOK_PATH,
+  AUTOMATION_SWEEP_PATH,
   // The parser preview shows a file from the developer's own disk and needs
   // no session. The page itself does not exist outside development.
   ...(process.env.NODE_ENV === "development" ? ["/preview"] : []),

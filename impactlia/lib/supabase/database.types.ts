@@ -655,6 +655,131 @@ export type Database = {
           },
         ]
       }
+      automatic_analyses: {
+        Row: {
+          analysis_id: string | null
+          attempts: number
+          comment_id: number | null
+          comment_published_at: string | null
+          created_at: string
+          head_sha: string
+          id: string
+          installation_id: number
+          locked_at: string | null
+          message: string | null
+          next_attempt_at: string
+          organization_id: string
+          pull_request_number: number
+          repository_id: string
+          status: Database["public"]["Enums"]["automatic_analysis_status"]
+          updated_at: string
+        }
+        Insert: {
+          analysis_id?: string | null
+          attempts?: number
+          comment_id?: number | null
+          comment_published_at?: string | null
+          created_at?: string
+          head_sha: string
+          id?: string
+          installation_id: number
+          locked_at?: string | null
+          message?: string | null
+          next_attempt_at?: string
+          organization_id: string
+          pull_request_number: number
+          repository_id: string
+          status?: Database["public"]["Enums"]["automatic_analysis_status"]
+          updated_at?: string
+        }
+        Update: {
+          analysis_id?: string | null
+          attempts?: number
+          comment_id?: number | null
+          comment_published_at?: string | null
+          created_at?: string
+          head_sha?: string
+          id?: string
+          installation_id?: number
+          locked_at?: string | null
+          message?: string | null
+          next_attempt_at?: string
+          organization_id?: string
+          pull_request_number?: number
+          repository_id?: string
+          status?: Database["public"]["Enums"]["automatic_analysis_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automatic_analyses_analysis_id_organization_id_fkey"
+            columns: ["analysis_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "automatic_analyses_repository_id_organization_id_fkey"
+            columns: ["repository_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "repositories"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      github_installations: {
+        Row: {
+          account_login: string
+          created_at: string
+          installation_id: number
+          organization_id: string
+          removed_at: string | null
+          suspended_at: string | null
+        }
+        Insert: {
+          account_login: string
+          created_at?: string
+          installation_id: number
+          organization_id: string
+          removed_at?: string | null
+          suspended_at?: string | null
+        }
+        Update: {
+          account_login?: string
+          created_at?: string
+          installation_id?: number
+          organization_id?: string
+          removed_at?: string | null
+          suspended_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "github_installations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      github_webhook_deliveries: {
+        Row: {
+          delivery_id: string
+          event: string
+          received_at: string
+        }
+        Insert: {
+          delivery_id: string
+          event: string
+          received_at?: string
+        }
+        Update: {
+          delivery_id?: string
+          event?: string
+          received_at?: string
+        }
+        Relationships: []
+      }
       organizations: {
         Row: {
           created_at: string
@@ -716,8 +841,10 @@ export type Database = {
       }
       repositories: {
         Row: {
+          automatic_analysis: boolean
           created_at: string
           default_branch: string
+          github_installation_id: number | null
           id: string
           is_seed: boolean
           name: string
@@ -727,8 +854,10 @@ export type Database = {
           provider_repository_id: string
         }
         Insert: {
+          automatic_analysis?: boolean
           created_at?: string
           default_branch: string
+          github_installation_id?: number | null
           id?: string
           is_seed?: boolean
           name: string
@@ -738,8 +867,10 @@ export type Database = {
           provider_repository_id: string
         }
         Update: {
+          automatic_analysis?: boolean
           created_at?: string
           default_branch?: string
+          github_installation_id?: number | null
           id?: string
           is_seed?: boolean
           name?: string
@@ -749,6 +880,13 @@ export type Database = {
           provider_repository_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "repositories_installation_same_organization"
+            columns: ["github_installation_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "github_installations"
+            referencedColumns: ["installation_id", "organization_id"]
+          },
           {
             foreignKeyName: "repositories_organization_id_fkey"
             columns: ["organization_id"]
@@ -874,6 +1012,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      automatic_analysis_claim_window: { Args: never; Returns: unknown }
+      claim_automatic_analysis: {
+        Args: { job: string }
+        Returns: Database["public"]["Tables"]["automatic_analyses"]["Row"][]
+      }
+      close_automatic_analyses: {
+        Args: {
+          delivery: string
+          installation: number
+          provider_repository_id: string
+          pull_request_number: number
+        }
+        Returns: string
+      }
       complete_analysis: {
         Args: { report: Json; run_id: string }
         Returns: undefined
@@ -881,6 +1033,22 @@ export type Database = {
       complete_repository_run: {
         Args: { parser_output: Json; run_id: string; source_sha?: string }
         Returns: undefined
+      }
+      queue_automatic_analysis: {
+        Args: {
+          delivery: string
+          event: string
+          head_sha: string
+          installation: number
+          is_private: boolean
+          provider_repository_id: string
+          pull_request_number: number
+        }
+        Returns: { job_id: string; outcome: string }[]
+      }
+      record_github_installation_event: {
+        Args: { action: string; delivery: string; installation: number }
+        Returns: string
       }
       requesting_organization_id: { Args: never; Returns: string }
     }
@@ -903,6 +1071,13 @@ export type Database = {
         | "saving"
         | "complete"
       analysis_status: "pending" | "running" | "completed" | "failed"
+      automatic_analysis_status:
+        | "queued"
+        | "running"
+        | "completed"
+        | "failed"
+        | "stale"
+        | "skipped"
       code_issue_category: "syntax" | "type"
       code_issue_source: "compiler"
       code_issue_status: "confirmed"

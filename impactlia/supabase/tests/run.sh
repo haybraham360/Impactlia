@@ -4,7 +4,7 @@
 #
 # Nothing here touches the Supabase project: it needs only a local Postgres
 # that the current user can create databases on. The scratch database is
-# dropped afterwards whatever happens, and so are the two roles if this run
+# dropped afterwards whatever happens, and so are the roles if this run
 # was what created them.
 set -eu
 cd "$(dirname "$0")/.."
@@ -21,9 +21,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for role in anon authenticated; do
+# service_role bypasses row-level security, as it does on Supabase: it is the
+# role the server's webhook and job code writes with.
+for role in anon authenticated service_role; do
   if [ "$(psql -X -At -d postgres -c "select 1 from pg_roles where rolname = '$role'")" != "1" ]; then
-    psql -X -q -v ON_ERROR_STOP=1 -d postgres -c "create role $role nologin"
+    attributes="nologin"
+    [ "$role" = "service_role" ] && attributes="nologin bypassrls"
+    psql -X -q -v ON_ERROR_STOP=1 -d postgres -c "create role $role $attributes"
     created_roles="$created_roles $role"
   fi
 done

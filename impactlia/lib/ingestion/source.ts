@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { downloadArchive } from "@/lib/github/public-repository";
-import type { RepositoryReference } from "@/lib/github/repository-url";
+import type { RepositoryAccess } from "@/lib/github/repository-url";
 import { summariseCoverage } from "@/lib/graph/coverage";
 import { buildGraphModel } from "@/lib/graph/model";
 import { extractArchive, type ArchiveLimits } from "@/lib/ingestion/archive";
@@ -35,7 +35,7 @@ export function createWorkDirectory(): string {
 }
 
 export async function downloadCommit(
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
   commitSha: string,
   directory: string,
 ): Promise<string> {
@@ -52,7 +52,7 @@ export async function unpackCommit(
   archive: string,
   directory: string,
   requestedSha: string,
-  repository: RepositoryReference,
+  repository: RepositoryAccess,
 ): Promise<{ source: string; commitSha: string | null }> {
   const source = path.join(directory, "source");
   const extracted = await extractArchive(archive, source, coreExclusionRules, LIMITS);
