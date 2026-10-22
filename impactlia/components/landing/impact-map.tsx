@@ -221,7 +221,7 @@ function Canvas({
             onBlur={() => onPreview(null)}
             className={`impact-step absolute flex cursor-pointer items-center gap-1.5 rounded-md border px-2 font-mono text-xs transition-opacity duration-150 aria-pressed:outline-2 aria-pressed:outline-offset-2 aria-pressed:outline-ink ${
               nodeClass[file.state]
-            } ${dimmed ? "opacity-30" : ""} ${
+            } ${dimmed ? "opacity-65" : ""} ${
               shownId === file.id ? "outline-2 outline-offset-2 outline-ink" : ""
             }`}
             style={{

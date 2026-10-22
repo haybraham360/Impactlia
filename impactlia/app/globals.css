@@ -12,6 +12,10 @@
   --ink: light-dark(#1a1630, #f1eff8);
   --muted: light-dark(#5d5873, #aaa5c2);
   --line: light-dark(#e1deec, #2d2843);
+  /* The outline of something you type into or press. --line is for quiet
+     dividers between areas; a control's edge has to stand out at 3:1 or
+     more against every surface it sits on, in both themes. */
+  --control-edge: light-dark(#86819c, #716b93);
   --accent: light-dark(#5b3fd4, #a191ff);
   --accent-ink: light-dark(#ffffff, #0c0a16);
   /* These three carry meaning (state and risk) and are never decoration. */
@@ -45,6 +49,7 @@
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-control-edge: var(--control-edge);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-positive: var(--positive);
@@ -499,4 +504,24 @@ body {
 /* So the page does not flash the app's canvas when it bounces at either end. */
 body:has(.landing) {
   background: #0c0a16;
+}
+
+/* Clerk's sign-in, sign-up and account screens outline their fields and
+   buttons with a 1px shadow in the border colour at 7-11% strength, about
+   1.1:1 against the card, so the controls seem to float. These redraw the
+   outline at full strength (3:1 or more in both themes) and give keyboard
+   focus a clear ring. Clerk's own rule has the weight of two classes and is
+   added later, so :root gives these the extra weight to win. */
+:root .cl-input.cl-formFieldInput,
+:root .cl-button.cl-socialButtonsBlockButton,
+:root .cl-input.cl-otpCodeFieldInput {
+  box-shadow: 0 0 0 1px var(--control-edge);
+}
+
+:root .cl-input.cl-formFieldInput:focus,
+:root .cl-button.cl-socialButtonsBlockButton:focus-visible,
+:root .cl-input.cl-otpCodeFieldInput:focus {
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 4px color-mix(in oklab, var(--accent) 35%, transparent);
 }

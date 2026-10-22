@@ -55,7 +55,9 @@ const toneClass: Record<FolderTone, string> = {
   related: "border-ink/25",
   "holds-selection": "border-accent",
   selected: "border-accent outline-2 outline-accent",
-  dimmed: "border-ink/25 opacity-25",
+  // Faded, not hidden: an unrelated file's name stays readable (4.5:1 or
+  // more in both themes) and only steps back from the related ones.
+  dimmed: "border-ink/25 opacity-65",
 };
 
 function FileRow({ file, data }: { file: GraphFile; data: FolderData }) {
@@ -83,7 +85,7 @@ function FileRow({ file, data }: { file: GraphFile; data: FolderData }) {
         style={{ height: ROW_HEIGHT }}
         className={`flex w-full cursor-pointer items-center gap-1.5 rounded px-2 text-left font-mono text-xs ${
           selected ? "bg-accent text-accent-ink" : hovered ? HOVERED_CLASS : "hover:bg-canvas"
-        } ${unrelated && !hovered ? "opacity-35" : ""}`}
+        } ${unrelated && !hovered ? "opacity-65" : ""}`}
       >
         <span className="truncate">{file.label}</span>
         {(dependent || dependency) && (

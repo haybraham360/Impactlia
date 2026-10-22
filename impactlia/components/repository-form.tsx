@@ -21,7 +21,7 @@ export function RepositoryForm() {
           spellCheck={false}
           placeholder="https://github.com/owner/repository"
           aria-describedby="repository-url-help"
-          className="min-w-0 flex-1 basis-72 rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[0.8125rem] transition-colors duration-150 placeholder:text-muted/70 hover:border-ink/30 focus-visible:border-accent"
+          className="min-w-0 flex-1 basis-72 rounded-lg border border-control-edge bg-canvas px-3 py-2 font-mono text-[0.8125rem] transition-colors duration-150 placeholder:text-muted hover:border-ink/60 focus-visible:border-accent"
         />
         <SubmitButton pendingLabel="Checking the repository…">Analyze repository</SubmitButton>
       </div>
