@@ -1,10 +1,15 @@
 import crypto from "node:crypto";
+import { clerkClient } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { linkInstallation } from "@/lib/automation/installations";
 import type { ConnectOutcome } from "@/lib/automation/status";
 import { automation } from "@/lib/env";
-import { confirmInstallationAccess } from "@/lib/github/app";
+import {
+  confirmInstallationAccess,
+  findInstallationAccount,
+  type VisibleInstallation,
+} from "@/lib/github/app";
 import { IngestionError } from "@/lib/ingestion/errors";
 import { ensureOrganization } from "@/lib/ingestion/runs";
 import {
@@ -26,9 +31,32 @@ import { getWorkspace } from "@/lib/workspace";
 //
 // GitHub includes that sign-in's code when the App asks for it during
 // installation. When it does not (an existing installation whose
-// repositories were changed, or the App setting is off) the member is sent
-// through GitHub's sign-in once more, with the installation id kept in the
-// cookie, and comes back here with a code.
+// repositories were changed, or the App setting is off) two things can
+// still confirm it. A member who signed in to Impactlia with GitHub, and
+// installed the App on that same personal account, is confirmed by Clerk's
+// verified link to the account. Anyone else is sent through GitHub's
+// sign-in once more, with the installation id kept in the cookie, and comes
+// back here with a code.
+
+// The installation, if it is on the personal GitHub account Clerk has
+// verified as this member's. GitHub's numeric account id is compared, not
+// the login, which can be renamed and reused.
+async function ownPersonalInstallation(
+  config: NonNullable<typeof automation.config>,
+  userId: string,
+  installationId: number,
+): Promise<VisibleInstallation | null> {
+  const account = await findInstallationAccount(config, installationId);
+  if (!account || account.accountType !== "User") return null;
+  const user = await (await clerkClient()).users.getUser(userId);
+  const verified = user.externalAccounts.some(
+    (external) =>
+      external.provider === "oauth_github" &&
+      external.verification?.status === "verified" &&
+      external.providerUserId === String(account.accountId),
+  );
+  return verified ? { installationId, accountLogin: account.accountLogin } : null;
+}
 
 const STATE = /^[A-Za-z0-9_-]{32}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,7 +94,22 @@ export async function GET(request: NextRequest): Promise<Response> {
   const installationId = Number(params.get("installation_id") ?? pendingInstallation);
   if (!Number.isSafeInteger(installationId) || installationId <= 0) return back("failed");
 
+  const link = async (visible: VisibleInstallation) => {
+    await ensureOrganization(createSupabaseClient(), workspace.organizationId);
+    const linked = await linkInstallation(config, workspace.organizationId, visible);
+    return back(linked === "taken" ? "taken" : "connected");
+  };
+
   if (code === "") {
+    try {
+      const own = await ownPersonalInstallation(config, workspace.userId, installationId);
+      if (own) return await link(own);
+    } catch (error) {
+      if (!(error instanceof IngestionError)) {
+        console.error("A GitHub installation could not be checked:", error);
+      }
+      return back("failed");
+    }
     // A second trip without a code means the sign-in did not happen.
     if (pendingInstallation !== "") return back("no-sign-in");
     jar.set(GITHUB_INSTALL_COOKIE, `${expectedState}.${repositoryId}.${installationId}`, {
@@ -87,9 +130,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   try {
     const visible = await confirmInstallationAccess(config, code, installationId);
     if (!visible) return back("not-yours");
-    await ensureOrganization(createSupabaseClient(), workspace.organizationId);
-    const linked = await linkInstallation(config, workspace.organizationId, visible);
-    return back(linked === "taken" ? "taken" : "connected");
+    return await link(visible);
   } catch (error) {
     if (!(error instanceof IngestionError)) {
       console.error("A GitHub installation could not be connected:", error);

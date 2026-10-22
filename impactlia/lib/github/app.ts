@@ -136,6 +136,32 @@ export async function findRepositoryInstallation(
 
 export type VisibleInstallation = { installationId: number; accountLogin: string };
 
+// The account an installation is on, as GitHub has it now, or null when the
+// installation does not exist (or was removed).
+export async function findInstallationAccount(
+  config: AutomationConfig,
+  installationId: number,
+): Promise<{ accountId: number; accountLogin: string; accountType: "User" | "Organization" } | null> {
+  const response = await api(`${API}/app/installations/${installationId}`, {
+    authorization: `Bearer ${appJwt(config)}`,
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new IngestionError("GitHub did not describe the installation. Try again in a moment.", {
+      retryable: true,
+    });
+  }
+  const account = (await json(response)).account as Fields | null;
+  if (
+    typeof account?.id !== "number" ||
+    typeof account.login !== "string" ||
+    (account.type !== "User" && account.type !== "Organization")
+  ) {
+    throw new Error("GitHub's installation response had no account.");
+  }
+  return { accountId: account.id, accountLogin: account.login.slice(0, 100), accountType: account.type };
+}
+
 // GitHub sends the member back from installing the App with an installation
 // id in the address, which anyone could edit. This is the check that the
 // member really can see that installation: the one-time code is exchanged
