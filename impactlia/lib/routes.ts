@@ -22,5 +22,8 @@ export const AUTOMATION_SWEEP_PATH = "/api/github/jobs";
 export const SIGN_IN_PATH = "/sign-in";
 export const SIGN_UP_PATH = "/sign-up";
 
-// Where someone who is signed in but has no active organization is sent.
+// Where every sign-in and sign-up lands, and where a session without an
+// active workspace is sent: it sets one up or opens the one there is.
+export const START_PATH = "/start";
+// The earlier address of the start page, kept so old links still work.
 export const CHOOSE_ORGANIZATION_PATH = "/choose-organization";

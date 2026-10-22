@@ -1,7 +1,7 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
-import { WORKSPACE_PATH } from "@/lib/routes";
+import { START_PATH } from "@/lib/routes";
 import { themeScript } from "@/lib/theme";
 import "./globals.css";
 
@@ -38,10 +38,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full font-sans">
         {/* Clerk's own screens use the same colour tokens as the app. */}
         <ClerkProvider
-          // Set here rather than in .env.local so the workspace's address
-          // has one definition. These win over the environment values.
-          signInFallbackRedirectUrl={WORKSPACE_PATH}
-          signUpFallbackRedirectUrl={WORKSPACE_PATH}
+          // Every sign-in and sign-up goes through the start page, which
+          // sets up a workspace if there is none and records the person
+          // once. Set here so the address has one definition; these win
+          // over the environment values.
+          signInFallbackRedirectUrl={START_PATH}
+          signUpFallbackRedirectUrl={START_PATH}
           appearance={{
             variables: {
               colorPrimary: "var(--accent)",
