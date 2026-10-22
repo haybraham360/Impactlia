@@ -10,6 +10,11 @@ export default function SignUpPage() {
       <Suspense>
         <SignUp />
       </Suspense>
+      <p className="max-w-sm text-center text-sm text-muted">
+        A workspace is set up for you straight after. Impactlia keeps your account id and that
+        workspace. Signing in with GitHub shares your public profile and email, nothing else. Repository access is
+        asked for separately, and only when you connect GitHub.
+      </p>
     </div>
   );
 }

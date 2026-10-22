@@ -1,7 +1,7 @@
 import "server-only";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { CHOOSE_ORGANIZATION_PATH } from "@/lib/routes";
+import { START_PATH } from "@/lib/routes";
 
 export type Workspace = {
   userId: string;
@@ -24,7 +24,7 @@ export async function getWorkspace(): Promise<Workspace> {
   // A signed-in session can have no active organization. Sign-in has nothing
   // to offer it and would bounce it straight back here.
   if (!orgId || !orgRole) {
-    redirect(CHOOSE_ORGANIZATION_PATH);
+    redirect(START_PATH);
   }
 
   const organizationName = sessionClaims.org_name;

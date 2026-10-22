@@ -116,7 +116,7 @@ function Hero() {
             style={{ animationDelay: "220ms" }}
           >
             <Link href={SIGN_UP_PATH} className="btn btn-primary">
-              Get started
+              Try Impactlia
             </Link>
             <a href="#how-it-works" className="btn btn-secondary">
               See how it works
@@ -607,7 +607,7 @@ function FinalCta() {
         </p>
         <div data-reveal data-reveal-delay="2" className="mt-9 flex flex-wrap justify-center gap-3">
           <Link href={SIGN_UP_PATH} className="btn btn-primary">
-            Get started
+            Try Impactlia
           </Link>
           <Link href={SIGN_IN_PATH} className="btn btn-secondary">
             Sign in

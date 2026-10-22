@@ -50,7 +50,7 @@ export function SiteNav() {
             Sign in
           </Link>
           <Link href={SIGN_UP_PATH} className="btn btn-primary btn-small">
-            Get started
+            Try Impactlia
           </Link>
           <button
             type="button"

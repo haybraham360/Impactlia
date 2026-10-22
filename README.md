@@ -88,6 +88,7 @@ pnpm lint
 pnpm build
 pnpm check:impact      # pull request impact and code-issue analysis
 pnpm check:automation  # GitHub webhooks, retries and the pull request comment
+pnpm check:onboarding  # first sign-in: workspace set-up and naming
 pnpm check:graph       # dependency graph traversal
 pnpm check:adapters    # framework adapters
 pnpm check:ingestion   # repository ingestion

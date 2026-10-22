@@ -780,6 +780,32 @@ export type Database = {
         }
         Relationships: []
       }
+      members: {
+        Row: {
+          created_at: string
+          organization_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          organization_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          organization_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           created_at: string
@@ -1051,6 +1077,7 @@ export type Database = {
         Returns: string
       }
       requesting_organization_id: { Args: never; Returns: string }
+      requesting_user_id: { Args: never; Returns: string }
     }
     Enums: {
       ai_cache_status: "hit" | "miss" | "read-failed" | "write-failed"
