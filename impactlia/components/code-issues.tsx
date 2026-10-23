@@ -23,7 +23,10 @@ const levelBorder: Record<RiskLevel, string> = {
 };
 
 const statusLabels: Record<CodeIssue["status"], string> = { confirmed: "Confirmed" };
-const sourceLabels: Record<CodeIssue["source"], string> = { compiler: "TypeScript compiler" };
+const sourceLabels: Record<CodeIssue["source"], string> = {
+  compiler: "TypeScript compiler",
+  "tree-sitter": "tree-sitter parser",
+};
 
 // The id an affected file's row carries in the report, so an issue can point
 // at it.

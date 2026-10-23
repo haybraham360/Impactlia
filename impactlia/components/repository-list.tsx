@@ -199,8 +199,9 @@ export function RepositoryList({
         }
       >
         <p>
-          Add a public GitHub repository to map the imports between its TypeScript and
-          JavaScript files. Its pull requests can then be traced through that map.
+          Add a public GitHub repository to map the imports between its source files, in
+          TypeScript, JavaScript, Python, Java, Go, C#, C, C++, Rust or PHP. Its pull
+          requests can then be traced through that map.
         </p>
         <p>No GitHub sign-in or permission is asked for, and nothing in the repository is run.</p>
       </EmptyState>

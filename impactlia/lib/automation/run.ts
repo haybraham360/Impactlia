@@ -271,7 +271,7 @@ async function attempt(config: AutomationConfig, db: ServiceSupabaseClient, job:
     }
     analysisId = started;
     await recordAnalysis(db, job, analysisId);
-    const outcome = await runImpactPipeline(db, analysisId, access, pullRequest);
+    const outcome = await runImpactPipeline(db, analysisId, job.repository_id, access, pullRequest);
     if (outcome.kind === "superseded") {
       return retryLater(db, job, "The analysis was closed while it ran.", null);
     }

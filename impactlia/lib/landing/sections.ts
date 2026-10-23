@@ -4,5 +4,6 @@ export const sectionLinks = [
   { href: "#how-it-works", label: "How it works" },
   { href: "#product", label: "Product" },
   { href: "#trust", label: "Trust" },
+  { href: "#languages", label: "Languages" },
   { href: "#faq", label: "FAQ" },
 ];

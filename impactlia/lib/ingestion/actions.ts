@@ -31,6 +31,15 @@ export async function reanalyzeRepository(form: FormData): Promise<void> {
   open(await startAnalysis(repositoryUrl(analysis.repository), "reanalyze"));
 }
 
+// The same, reading the whole default branch again instead of updating the
+// stored analysis.
+export async function rebuildRepository(form: FormData): Promise<void> {
+  await getWorkspace();
+  const analysis = await getStoredAnalysis(field(form, "repositoryId"));
+  if (!analysis) redirect(WORKSPACE_PATH);
+  open(await startAnalysis(repositoryUrl(analysis.repository), "rebuild"));
+}
+
 // Retrying never reopens a run. A failed run stays failed; a stale one is
 // closed first, and only if it is still stale at that moment. What starts is
 // a new run of the same address.

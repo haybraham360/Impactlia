@@ -12,17 +12,17 @@ export const STAGES = [
   {
     id: "fetching",
     label: "Fetching source",
-    message: "Finding the latest commit on the default branch and downloading its archive.",
+    message: "Finding the latest commit on the default branch.",
   },
   {
     id: "preparing",
     label: "Preparing files",
-    message: "Unpacking the archive and keeping the files the parser reads. Nothing in it is run.",
+    message: "Loading the parsers for each supported language.",
   },
   {
     id: "parsing",
     label: "Parsing dependencies",
-    message: "Reading every import and resolving it to a file in the repository.",
+    message: "Downloading the commit, or only what changed since the stored analysis, and resolving every import to a file in the repository. Nothing in it is run.",
   },
   {
     id: "calculating",

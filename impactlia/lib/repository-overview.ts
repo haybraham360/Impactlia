@@ -7,9 +7,20 @@ import type {
   RouteRecord,
   UnresolvedReason,
 } from "@/parser/contract";
+import { unsupportedFileTypeRule } from "@/parser/exclusions";
+import {
+  SUPPORTED_LANGUAGES,
+  describeLanguage,
+  type CapabilityLevel,
+} from "@/parser/languages/registry";
 import { FRAMEWORKS, type RoleId } from "@/parser/roles";
 
 export type FileGroup = { label: string; files: number };
+
+// A language found in the repository and how far it is analysed. A detected
+// language's files were left out of the graph; they are counted here so the
+// summary can say they exist.
+export type LanguageGroup = FileGroup & { capability: CapabilityLevel };
 
 export type RepositoryOverview = {
   // The name in the repository's root package.json, as the parser recorded
@@ -40,6 +51,7 @@ export type RepositoryOverview = {
   noKnownDependents: string[];
   fileTypes: FileGroup[];
   topLevelDirectories: FileGroup[];
+  languages: LanguageGroup[];
 };
 
 // Shown for files that sit directly in the repository root. Not a directory
@@ -51,7 +63,28 @@ const MOST_DEPENDED_ON = 10;
 // The one way a file's type is named: its extension, with declaration files
 // kept apart because the parser records them apart.
 export function fileType(file: Pick<FileNode, "extension" | "declaration">): string {
-  return file.declaration ? `.d${file.extension}` : file.extension;
+  // A Python stub's own extension, .pyi, already says it is one.
+  return file.declaration && file.extension !== ".pyi" ? `.d${file.extension}` : file.extension;
+}
+
+// Supported languages from the graph's files; detected ones from the files
+// the parser left out as an unsupported type.
+function languagesOf(output: ParserOutput): LanguageGroup[] {
+  const capability = new Map<string, CapabilityLevel>();
+  const labels: string[] = [];
+  for (const file of output.files) {
+    const { label, capability: level } = SUPPORTED_LANGUAGES[file.language];
+    capability.set(label, level);
+    labels.push(label);
+  }
+  for (const entry of output.excluded) {
+    if (entry.type !== "file" || entry.rule !== unsupportedFileTypeRule.id) continue;
+    const language = describeLanguage(entry.path);
+    if (language?.capability !== "detected") continue;
+    capability.set(language.label, "detected");
+    labels.push(language.label);
+  }
+  return countBy(labels).map((group) => ({ ...group, capability: capability.get(group.label) ?? "detected" }));
 }
 
 // Largest first, then plain code-point order so ties do not depend on locale.
@@ -119,5 +152,6 @@ export function summariseRepository(output: ParserOutput): RepositoryOverview {
     topLevelDirectories: countBy(
       output.files.map((file) => file.folderSegments[0] ?? ROOT_LABEL),
     ),
+    languages: languagesOf(output),
   };
 }

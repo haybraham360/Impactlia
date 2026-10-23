@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { frameworkAdapters } from "./adapters";
 import type { ParserOutput, ReferenceCounts } from "./contract";
+import { loadGrammars } from "./languages/tree-sitter";
 import { parseRepository } from "./parse-repository";
 import { FRAMEWORKS, ROLES } from "./roles";
 import { readParserOutput } from "./validate";
@@ -146,9 +147,9 @@ function summary(output: ParserOutput): string[] {
   return lines;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { directory, out } = readArguments(process.argv.slice(2));
-  const output = parseRepository(directory, frameworkAdapters);
+  const output = parseRepository(directory, await loadGrammars(), frameworkAdapters);
   const json = `${JSON.stringify(output, null, 2)}\n`;
 
   console.log(`Repository: ${path.resolve(directory)}`);
@@ -168,9 +169,7 @@ function main(): void {
   }
 }
 
-try {
-  main();
-} catch (error) {
+main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
-}
+});

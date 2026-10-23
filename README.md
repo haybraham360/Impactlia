@@ -144,6 +144,31 @@ Limits: public repositories only; the comment lists at most five affected files,
 - Keep server-side secrets out of client-side `NEXT_PUBLIC_` variables.
 - Use development credentials locally and configure production credentials only in the appropriate deployment environment.
 
+### Languages and large repositories
+
+| Language | Parser | What is understood |
+| --- | --- | --- |
+| TypeScript, JavaScript | TypeScript compiler | Imports, framework roles and routes (Next.js, NestJS, Express, React), related tests and scenarios, type-checking of changed code |
+| Python | tree-sitter | Imports, related tests and scenarios, a pytest command when the repository shows pytest |
+| Java, Go, C#, Rust, PHP | tree-sitter | Imports resolved to the declaring files, related tests by import and name, the ecosystem's test command from its build file |
+| C, C++ | tree-sitter | `#include` relationships, related tests by include and name |
+| Ruby, Kotlin, Swift, Dart, SQL | none | Recognised by extension only; a changed file is named, with nothing claimed about it |
+
+Every relationship keeps the statement that proves it. What cannot be resolved is reported as unresolved, never guessed. The grammars are WebAssembly packages (`web-tree-sitter` and one `tree-sitter-*` package per language, all MIT); their native build scripts are denied in `pnpm-workspace.yaml`, and `next.config.ts` ships the `.wasm` files with the functions that parse.
+
+**Resource limits.** All of them are in `lib/ingestion/budgets.ts`, each against the resource it protects. The old single 100 MB limit was the compressed archive, saved to `/tmp` before unpacking. The archive is now unpacked as it downloads and never stored, and is allowed up to 1 GB. Other limits: 4 GB unpacked, 300 MB written, 15,000 source files (5,000 of them TypeScript/JavaScript), 1 MB per source file (a larger one is left out and named), 2 seconds of parsing per file, and 4 minutes per run. Binary files and files marked as generated are left out by rule. A run that reaches a hard limit fails with a message naming it; nothing is analysed in part without saying so.
+
+**Large repositories.** A repository with at least 2,000 source files, once analysed, is not downloaded again. Its stored graph is the index, and later analyses update it. GitHub's compare lists the files changed since the index's commit, only those are downloaded and parsed, and every other file's stored imports are resolved again against the new file tree. `parser/checks/overlay.test.ts` holds the result to be identical to a full parse. The full download is used instead, and the reason recorded, when:
+- the index is not an ancestor of the commit;
+- more than 300 files changed;
+- a `package.json`, tsconfig, `go.mod`, `Cargo.toml`, `composer.json` or `pyproject.toml` changed;
+- Java, C# or PHP files changed;
+- the index was built by an older parser.
+
+Changed TypeScript is not type-checked on this path. "Rebuild from scratch" on a repository reads the whole default branch again.
+
+**Deployment and cost.** No new service and no paid dependency. Each organization may have three runs in progress at once. The selective path makes one compare request and downloads files from `raw.githubusercontent.com`, which does not count against GitHub's unauthenticated limit of 60 requests an hour. Apply `supabase/migrations/20261023090000_python_syntax_issues.sql` before deploying: it adds the `tree-sitter` code-issue source.
+
 ## Roadmap
 
 Areas of ongoing development and exploration include:

@@ -1106,7 +1106,7 @@ export type Database = {
         | "stale"
         | "skipped"
       code_issue_category: "syntax" | "type"
-      code_issue_source: "compiler"
+      code_issue_source: "compiler" | "tree-sitter"
       code_issue_status: "confirmed"
       file_change_type: "added" | "modified" | "removed" | "renamed"
       finding_origin: "deterministic" | "ai"

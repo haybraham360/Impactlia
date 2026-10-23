@@ -171,7 +171,7 @@ function declarationsOf(file: ts.SourceFile): Candidate[] {
   return candidates;
 }
 
-function touches(lines: ChangedLines, start: number, end: number): boolean {
+export function touches(lines: ChangedLines, start: number, end: number): boolean {
   if (lines.added === "all") return true;
   if (lines.added.some((range) => range.start <= end && range.end >= start)) return true;
   // A removal at a declaration's first line is lines taken out just above it,
@@ -179,7 +179,7 @@ function touches(lines: ChangedLines, start: number, end: number): boolean {
   return lines.removedAt.some((point) => point > start && point <= end);
 }
 
-function isAddedLine(lines: ChangedLines, line: number): boolean {
+export function isAddedLine(lines: ChangedLines, line: number): boolean {
   return lines.added === "all" || lines.added.some((range) => line >= range.start && line <= range.end);
 }
 

@@ -20,7 +20,7 @@ export const ANALYSIS_STAGES = [
     id: "preparing",
     label: "Preparing repository graph",
     message:
-      "Downloading the pull request's head commit and mapping its imports. Nothing in it is run.",
+      "Downloading the pull request's head commit, or for a large repository only what changed since its stored analysis, and mapping its imports. Nothing in it is run.",
   },
   {
     id: "mapping",

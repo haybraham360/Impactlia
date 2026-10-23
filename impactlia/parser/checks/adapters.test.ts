@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import { frameworkAdapters } from "../adapters";
 import type { ParserOutput } from "../contract";
 import { parseRepository } from "../parse-repository";
 import { readParserOutput } from "../validate";
+import { loadGrammars, type Grammars } from "../languages/tree-sitter";
+
+// The parser's grammars load asynchronously, once, before any test.
+let grammars: Grammars;
+before(async () => {
+  grammars = await loadGrammars();
+});
 
 // Run with `pnpm check:adapters`. Each repository is written out below, file
 // by file, so every expected role and route can be read off the test.
@@ -18,7 +25,7 @@ function analyse(files: Record<string, string>): ParserOutput {
       fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
       fs.writeFileSync(path.join(directory, file), content);
     }
-    const output = parseRepository(directory, frameworkAdapters);
+    const output = parseRepository(directory, grammars, frameworkAdapters);
     // What is stored is what has to hold together.
     return readParserOutput(JSON.parse(JSON.stringify(output)));
   } finally {

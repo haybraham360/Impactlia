@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { reasonLabel } from "@/components/repository-summary";
 import type { CoverageSummary } from "@/lib/graph/coverage";
+import { SUPPORTED_LANGUAGE_NAMES } from "@/parser/languages/registry";
 
 const numberFormat = new Intl.NumberFormat("en");
 const plural = (count: number, one: string, many: string) =>
@@ -105,15 +106,15 @@ export function CoverageBanner({ coverage }: { coverage: CoverageSummary }) {
                 </span>{" "}
                 imports of files left out of the graph:{" "}
                 <span className="text-muted">
-                  build output, installed dependencies and files that are not TypeScript
-                  or JavaScript.
+                  build output, installed dependencies and files in languages the
+                  parser does not read.
                 </span>
               </li>
             )}
           </ul>
           <p className="max-w-prose text-muted">
             Select a file to see its own unresolved imports. Apart from what is counted
-            above, this map only knows static imports in TypeScript and JavaScript.
+            above, this map only knows static imports in {SUPPORTED_LANGUAGE_NAMES}.
             {coverage.unsupportedFiles > 0 &&
               ` ${plural(coverage.unsupportedFiles, "file of another type was", "files of other types were")} not read.`}{" "}
             Files a framework loads by convention (routes, pages, config), and anything

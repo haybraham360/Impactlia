@@ -1,4 +1,5 @@
 import type { FileNode, ParserOutput } from "../../parser/contract";
+import { SUPPORTED_LANGUAGES, SYNTAX_ISSUES } from "../../parser/languages/registry";
 import { byText, type GraphIndex } from "../graph/traverse";
 import type { ChangeMapping } from "./analyze";
 import { isAdded } from "./patch";
@@ -37,7 +38,7 @@ export const CODE_ISSUE_RULES: Record<
   syntax: {
     label: "Syntax error",
     severity: "high",
-    rule: "High. The TypeScript parser could not read the file at that line. Anything that compiles or loads the file fails, unless the project compiles it with syntax extensions TypeScript does not know.",
+    rule: "High. The parser could not read the file at that line: TypeScript's for TypeScript and JavaScript, tree-sitter's grammar for Python, Java, Go, C#, Rust and PHP. Anything that compiles, imports or loads the file fails, unless the project uses syntax extensions or a language version the parser does not know. Not reported for C and C++, which are read without their preprocessor.",
   },
   type: {
     label: "Type error",
@@ -119,6 +120,11 @@ export function planCodeCheck(
       skipped.push({ path: changed.path, reason: LINE_UNKNOWN });
     } else if (lines !== null && lines.length === 0) {
       skipped.push({ path: changed.path, reason: "The pull request adds no lines to it." });
+    } else if (SUPPORTED_LANGUAGES[node.language].capability !== "advanced") {
+      skipped.push({
+        path: changed.path,
+        reason: `${SUPPORTED_LANGUAGES[node.language].label} files are not type-checked: no compiler for it runs here. Syntax errors on added lines are still listed.`,
+      });
     } else if (node.parseStatus === "failed") {
       skipped.push({
         path: changed.path,
@@ -177,16 +183,18 @@ export function collectCodeIssues(
   // Syntax errors, as the parser recorded them for the graph.
   for (const changed of changes.files) {
     const node = nodeByPath.get(changed.path);
-    if (!node || node.parseStatus !== "failed") continue;
+    if (!node || node.parseStatus !== "failed" || !SYNTAX_ISSUES.has(node.language)) continue;
     for (const error of node.parseErrors) {
       if (!onAddedLine(node.path, error.line)) continue;
       const { related, count } = importersOf(node.path);
+      const compiler = node.language === "typescript" || node.language === "javascript";
+      const label = SUPPORTED_LANGUAGES[node.language].label;
       issues.push({
         title: CODE_ISSUE_RULES.syntax.label,
         category: "syntax",
         severity: CODE_ISSUE_RULES.syntax.severity,
         status: "confirmed",
-        source: "compiler",
+        source: compiler ? "compiler" : "tree-sitter",
         ruleId: null,
         path: node.path,
         startLine: error.line,
@@ -194,8 +202,7 @@ export function collectCodeIssues(
         endLine: null,
         endColumn: null,
         message: error.message,
-        conditions:
-          "Reported by the TypeScript parser reading this file at the head commit, at a line the pull request adds. The parser records at most five syntax errors per file.",
+        conditions: `Reported by ${compiler ? "the TypeScript parser" : `tree-sitter's ${label} parser`} reading this file at the head commit, at a line the pull request adds. The parser records at most five syntax errors per file.`,
         relatedFiles: related,
         relatedFileCount: count,
       });

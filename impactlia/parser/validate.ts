@@ -3,6 +3,7 @@ import {
   EXTERNAL_KINDS,
   LANGUAGES,
   PARSE_STATUSES,
+  READABLE_SCHEMA_VERSIONS,
   REFERENCE_KINDS,
   RESOLUTION_METHODS,
   SCHEMA_VERSION,
@@ -339,12 +340,13 @@ function checkConsistency(output: ParserOutput): void {
 // Turns untrusted JSON into a ParserOutput, or throws saying what is wrong.
 export function readParserOutput(value: unknown): ParserOutput {
   const o = fields(value, "output");
-  if (o.schemaVersion !== SCHEMA_VERSION) {
-    fail("output.schemaVersion", `${SCHEMA_VERSION}`);
+  if (typeof o.schemaVersion !== "number" || !READABLE_SCHEMA_VERSIONS.includes(o.schemaVersion)) {
+    fail("output.schemaVersion", READABLE_SCHEMA_VERSIONS.join(" or "));
   }
   const framework = fields(o.framework, "output.framework");
   const output: ParserOutput = {
     schemaVersion: SCHEMA_VERSION,
+    ...(o.analyzerVersion === undefined ? {} : { analyzerVersion: count(o.analyzerVersion, "output.analyzerVersion") }),
     adapter: oneOf(FRAMEWORK_NAMES, o.adapter, "output.adapter"),
     framework: {
       evidence: list(framework.evidence, "output.framework.evidence", (entry, at) => {

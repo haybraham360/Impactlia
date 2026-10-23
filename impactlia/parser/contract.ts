@@ -1,3 +1,4 @@
+import type { SupportedLanguage } from "./languages/registry";
 import type { FrameworkName, RoleId } from "./roles";
 
 // The data contract every later phase consumes. Nothing in it is specific to
@@ -8,7 +9,11 @@ import type { FrameworkName, RoleId } from "./roles";
 // Extending it: add optional fields freely. Renaming, removing or changing
 // the meaning of a field means bumping SCHEMA_VERSION.
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+// Version 3 only added values to the lists below (more languages, and their
+// reference kinds and resolution methods), so a version 2 document is still a
+// valid one.
+export const READABLE_SCHEMA_VERSIONS: readonly number[] = [2, 3];
 
 export const REFERENCE_KINDS = [
   "import",
@@ -18,6 +23,19 @@ export const REFERENCE_KINDS = [
   "import-type",
   "reference-path",
   "reference-types",
+  // Python's `from module import name`. A plain `import module` is "import".
+  "from-import",
+  // C and C++ #include.
+  "include",
+  // Rust and PHP `use`, C# `using`.
+  "use",
+  // Rust `mod name;`, which makes another file a child module.
+  "mod",
+  // A Java, C# or PHP type named in the file and declared by another file in
+  // a package or namespace the file can see without an import.
+  "type-reference",
+  // A Go test file, compiled together with the other files of its folder.
+  "same-package",
 ] as const;
 export type ReferenceKind = (typeof REFERENCE_KINDS)[number];
 
@@ -29,6 +47,19 @@ export const RESOLUTION_METHODS = [
   "base-url",
   "package-imports",
   "workspace-package",
+  // An absolute Python module path, found under one of the repository's
+  // source roots.
+  "source-root",
+  // A C or C++ header found in one of the repository's include folders.
+  "include-directory",
+  // A Java, C# or PHP name matched to the file that declares it.
+  "declaration-index",
+  // A Go import path under a module a go.mod in the repository declares.
+  "go-module",
+  // A Rust path followed through the crate's module files.
+  "module-tree",
+  // A PHP class found through a PSR-4 prefix in composer.json.
+  "psr-4",
 ] as const;
 export type ResolutionMethod = (typeof RESOLUTION_METHODS)[number];
 
@@ -44,7 +75,18 @@ export type UnresolvedReason = (typeof UNRESOLVED_REASONS)[number];
 export const EXTERNAL_KINDS = ["package", "builtin", "outside-repository"] as const;
 export type ExternalKind = (typeof EXTERNAL_KINDS)[number];
 
-export const LANGUAGES = ["typescript", "javascript"] as const;
+export const LANGUAGES = [
+  "typescript",
+  "javascript",
+  "python",
+  "java",
+  "go",
+  "csharp",
+  "c",
+  "cpp",
+  "rust",
+  "php",
+] as const satisfies readonly SupportedLanguage[];
 export type Language = (typeof LANGUAGES)[number];
 
 export const PARSE_STATUSES = ["parsed", "failed"] as const;
@@ -217,8 +259,15 @@ export type Coverage = {
 // up as unresolved.
 export type ResolutionConfig = { path: string; problems: string[] };
 
+// Which parser logic built a graph. A stored graph is only updated in place
+// (parse-repository.ts, overlay) by the logic that built it; raise this
+// whenever what is read from a file, or how a reference resolves, changes.
+// Absent from graphs built before it existed, which are never updated.
+export const ANALYZER_VERSION = 1;
+
 export type ParserOutput = {
   schemaVersion: typeof SCHEMA_VERSION;
+  analyzerVersion?: number;
   adapter: FrameworkName;
   // What selected the adapter; empty when none matched.
   framework: { evidence: FrameworkEvidence[]; notes: FrameworkNote[] };

@@ -14,7 +14,10 @@ import {
   insertAnalysis,
   upsertPullRequest,
 } from "@/lib/impact/runs";
+import { BUDGETS } from "@/lib/ingestion/budgets";
 import { IngestionError } from "@/lib/ingestion/errors";
+import { countActiveWork } from "@/lib/ingestion/runs";
+import { BUSY } from "@/lib/ingestion/start";
 import { createRunSupabaseClient } from "@/lib/supabase/server";
 import { getWorkspace } from "@/lib/workspace";
 
@@ -96,6 +99,10 @@ export async function startPullRequestAnalysis(
     if (stored) return { kind: "analysis", analysisId: stored };
   }
 
+  if ((await countActiveWork(client, workspace.organizationId)) >= BUDGETS.activeRunsPerOrganization) {
+    return { kind: "refused", message: BUSY };
+  }
+
   const analysisId = await insertAnalysis(
     client,
     workspace.organizationId,
@@ -113,6 +120,6 @@ export async function startPullRequestAnalysis(
   }
 
   // The response goes back now; the analysis carries on in this server process.
-  after(() => runImpactPipeline(client, analysisId, repository, pullRequest));
+  after(() => runImpactPipeline(client, analysisId, repository.id, repository, pullRequest));
   return { kind: "analysis", analysisId };
 }

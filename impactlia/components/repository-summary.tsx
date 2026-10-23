@@ -16,6 +16,7 @@ import type { GraphFile, GraphModel } from "@/lib/graph/model";
 import type { Selection } from "@/lib/graph/selection";
 import type { RepositoryOverview } from "@/lib/repository-overview";
 import type { UnresolvedReason } from "@/parser/contract";
+import { CAPABILITY_LEVELS } from "@/parser/languages/registry";
 
 export const reasonLabel: Record<UnresolvedReason, string> = {
   "file-not-found": "File not found",
@@ -77,6 +78,30 @@ export function RepositorySummary({
           ))}
         </div>
       </div>
+
+      <Section title="Languages" count={overview.languages.length}>
+        <ul className="space-y-1">
+          {overview.languages.map((language) => (
+            <li key={language.label} className="flex justify-between gap-3">
+              <span>
+                {language.label}{" "}
+                <span className="text-muted">· {plural(language.files, "file", "files")}</span>
+              </span>
+              <span
+                className="shrink-0 text-right text-muted"
+                title={CAPABILITY_LEVELS[language.capability].rule}
+              >
+                {CAPABILITY_LEVELS[language.capability].label}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {overview.languages.some((language) => language.capability === "detected") && (
+          <p className="mt-2 text-xs text-muted">
+            {CAPABILITY_LEVELS.detected.label}: {CAPABILITY_LEVELS.detected.rule}
+          </p>
+        )}
+      </Section>
 
       <Section title="Most depended-on files">
         {overview.mostDependedOn.length === 0 ? (

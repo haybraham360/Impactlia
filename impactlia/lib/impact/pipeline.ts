@@ -8,12 +8,12 @@ import {
 import type { RepositoryAccess } from "@/lib/github/repository-url";
 import { calculateBlastRadius, mapChangedFiles, scoreImpact } from "@/lib/impact/analyze";
 import { collectCodeIssues, planCodeCheck } from "@/lib/impact/code-issues";
-import type { ImpactReport } from "@/lib/impact/report";
+import type { ImpactReport, Limitation } from "@/lib/impact/report";
 import { repositoryFiles } from "@/lib/impact/repository-files";
 import { advanceAnalysis, completeAnalysis, failAnalysis } from "@/lib/impact/runs";
 import { assessRisk } from "@/lib/impact/score";
 import { recommendTests } from "@/lib/impact/tests";
-import { typeCheckFiles } from "@/lib/impact/type-check";
+import { typeCheckFiles, type TypeCheckOutcome } from "@/lib/impact/type-check";
 import {
   PROCESSING_LIMIT_MS,
   analysisStageOf,
@@ -21,14 +21,23 @@ import {
 } from "@/lib/impact/stages";
 import { IngestionError } from "@/lib/ingestion/errors";
 import { RunSuperseded } from "@/lib/ingestion/runs";
-import {
-  checkedGraph,
-  createWorkDirectory,
-  downloadCommit,
-  parseSource,
-  unpackCommit,
-} from "@/lib/ingestion/source";
+import { BUDGETS } from "@/lib/ingestion/budgets";
+import { buildCommitGraph, createWorkDirectory } from "@/lib/ingestion/source";
 import type { SupabaseClient } from "@/lib/supabase/server";
+import { loadGrammars } from "@/parser/languages/tree-sitter";
+
+const SELECTIVE_TYPE_CHECK =
+  "Not type-checked: this analysis downloaded only the files that changed, and the compiler needs every file the changed code imports.";
+
+// How the graph was built, when it was not from the whole commit. Said in
+// the report, because what was read and what was taken from earlier differ.
+function selectiveLimitation(indexSha: string, changedSinceIndex: number): Limitation {
+  return {
+    id: "selective-analysis",
+    detail: `Dependencies come from the stored analysis of commit ${indexSha.slice(0, 7)}, updated with the ${changedSinceIndex} ${changedSinceIndex === 1 ? "file" : "files"} GitHub lists as changed between it and this pull request's head. Only those files, the changed files and the tests importing them were downloaded; every other file's imports were taken from the stored analysis and resolved again against this commit's files. Changed TypeScript was not type-checked.`,
+    files: [],
+  };
+}
 
 function reasonFor(error: unknown, stage: AnalysisStageId, analysisId: string): string {
   if (error instanceof IngestionError) return error.message;
@@ -60,6 +69,7 @@ export type PipelineOutcome =
 export async function runImpactPipeline(
   client: SupabaseClient,
   analysisId: string,
+  repositoryId: string,
   repository: RepositoryAccess,
   pullRequest: PullRequest,
 ): Promise<PipelineOutcome> {
@@ -97,20 +107,36 @@ export async function runImpactPipeline(
 
     await enter("preparing");
     directory = createWorkDirectory();
-    const archive = await downloadCommit(repository, pullRequest.headSha, directory);
-    const { source, commitSha } = await unpackCommit(
-      archive,
-      directory,
-      pullRequest.headSha,
+    const grammars = await loadGrammars();
+    const { graph, source, commitSha, selective } = await buildCommitGraph(
+      client,
+      repositoryId,
       repository,
+      pullRequest.headSha,
+      directory,
+      grammars,
     );
-    const graph = checkedGraph(parseSource(source));
 
     await enter("mapping");
     const mapping = mapChangedFiles(graph, changes);
 
     await enter("calculating");
     const radius = calculateBlastRadius(graph, mapping.starts);
+
+    // On the selective path only the files that changed since the index are
+    // on disk. The pull request's own changed files, and the tests that
+    // import them directly, are downloaded too, so their declarations and
+    // imports can be read; anything else reads as unavailable.
+    if (selective) {
+      const pathOf = new Map(graph.files.map((file) => [file.id, file.path]));
+      const directTests = radius.traversal.reached
+        .filter((entry) => entry.depth === 1)
+        .map((entry) => pathOf.get(entry.file) ?? entry.file)
+        .filter((file) => graph.files.find((node) => node.path === file)?.role.id === "test")
+        .slice(0, BUDGETS.fetchedTests);
+      await selective.fetchMore([...mapping.changed.map((file) => file.path), ...directTests]);
+    }
+    const files = repositoryFiles(source, selective?.readable);
 
     await enter("scoring");
     const analysis = scoreImpact(graph, changes, mapping, radius, commitSha);
@@ -119,14 +145,21 @@ export async function runImpactPipeline(
     // count, so an issue found is one the change introduces or touches.
     await enter("checking");
     const plan = planCodeCheck(graph, changes, mapping);
-    const outcomes = typeCheckFiles(source, plan.targets);
+    const outcomes: TypeCheckOutcome[] = selective
+      ? plan.targets.map((path) => ({ path, state: "skipped", reason: SELECTIVE_TYPE_CHECK }))
+      : typeCheckFiles(source, plan.targets);
     const code = collectCodeIssues(graph, changes, radius.index, plan, outcomes);
 
-    // Test files are read as text from the same unpacked commit, and the
-    // score is weighed last, once every factor it uses is known.
+    // Test files are read as text from the same commit, and the score is
+    // weighed last, once every factor it uses is known.
     await enter("recommending");
-    const tests = recommendTests(graph, changes, mapping, radius, repositoryFiles(source));
-    const limitations = [...analysis.limitations, ...code.limitations, ...tests.limitations];
+    const tests = recommendTests(graph, changes, mapping, radius, files, grammars);
+    const limitations = [
+      ...(selective ? [selectiveLimitation(selective.indexSha, selective.changedSinceIndex)] : []),
+      ...analysis.limitations,
+      ...code.limitations,
+      ...tests.limitations,
+    ];
     const risk = assessRisk({
       changes,
       mapping,

@@ -6,7 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { checkRevision, loadStoredAi } from "@/lib/ai/explain";
 import { summariseCoverage } from "@/lib/graph/coverage";
 import { buildGraphModel } from "@/lib/graph/model";
-import { reanalyzeRepository, retryRun } from "@/lib/ingestion/actions";
+import { rebuildRepository, reanalyzeRepository, retryRun } from "@/lib/ingestion/actions";
 import { getStoredAnalysis, type RepositoryRun, type StoredAnalysis } from "@/lib/ingestion/runs";
 import { stageOf } from "@/lib/ingestion/stages";
 import { summariseRepository } from "@/lib/repository-overview";
@@ -39,6 +39,22 @@ function Reanalyze({ repositoryId }: { repositoryId: string }) {
       <input type="hidden" name="repositoryId" value={repositoryId} />
       <SubmitButton quiet pendingLabel="Starting…">
         Re-analyze
+      </SubmitButton>
+    </form>
+  );
+}
+
+// Re-analysis of a large repository updates its stored map with what changed
+// since (lib/ingestion/selective.ts). This reads the whole default branch
+// again instead, for when the stored map is in doubt.
+function Rebuild({ repositoryId }: { repositoryId: string }) {
+  return (
+    <form action={rebuildRepository}>
+      <input type="hidden" name="repositoryId" value={repositoryId} />
+      <SubmitButton quiet pendingLabel="Starting…">
+        <span title="Download and read the whole default branch again, instead of updating this map with what changed since.">
+          Rebuild from scratch
+        </span>
       </SubmitButton>
     </form>
   );
@@ -115,7 +131,10 @@ function Header({ analysis }: { analysis: StoredAnalysis | null }) {
           )}
           <div className="ml-auto">
             {analysis.latestRun?.status !== "running" && (
-              <Reanalyze repositoryId={analysis.repository.id} />
+              <div className="flex items-center gap-2">
+                <Reanalyze repositoryId={analysis.repository.id} />
+                <Rebuild repositoryId={analysis.repository.id} />
+              </div>
             )}
           </div>
         </>

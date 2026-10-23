@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Language } from "./contract";
+import { supportedLanguageOf } from "./languages/registry";
 import { symbolicLinkRule, unsupportedFileTypeRule, type ExclusionRule } from "./exclusions";
 
 export type WalkResult = {
@@ -11,24 +12,18 @@ export type WalkResult = {
   skippedDirectories: Map<string, string>;
 };
 
-const LANGUAGE_BY_EXTENSION: Record<string, Language> = {
-  ".ts": "typescript",
-  ".tsx": "typescript",
-  ".mts": "typescript",
-  ".cts": "typescript",
-  ".js": "javascript",
-  ".jsx": "javascript",
-  ".mjs": "javascript",
-  ".cjs": "javascript",
-};
-
+// A file is source when its extension names a supported language. A Python
+// stub (*.pyi) is a declaration file, like *.d.ts.
 export function describeSourceFile(
   name: string,
 ): { extension: string; language: Language; declaration: boolean } | null {
-  const extension = path.extname(name);
-  const language = LANGUAGE_BY_EXTENSION[extension];
+  const language = supportedLanguageOf(name);
   if (!language) return null;
-  return { extension, language, declaration: /\.d\.[cm]?ts$/.test(name) };
+  return {
+    extension: path.extname(name),
+    language,
+    declaration: /\.d\.[cm]?ts$/.test(name) || name.endsWith(".pyi"),
+  };
 }
 
 // Plain code-point order, so the result does not depend on the machine's locale.

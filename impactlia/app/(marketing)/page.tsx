@@ -11,12 +11,21 @@ import { IMPACT_DEPTH } from "@/lib/impact/risk";
 import { exampleChecks } from "@/lib/landing/example-report";
 import { sectionLinks } from "@/lib/landing/sections";
 import { SIGN_IN_PATH, SIGN_UP_PATH } from "@/lib/routes";
+import { LANGUAGES } from "@/parser/contract";
+import {
+  CAPABILITY_ORDER,
+  DETECTED_LANGUAGES,
+  SUPPORTED_LANGUAGES,
+  type CapabilityLevel,
+  type SupportedLanguage,
+} from "@/parser/languages/registry";
 
 // The public page. It reads no session and no data, so it is fully
 // prerendered and looks the same whether or not anyone is signed in.
 //
 // Every product claim on it was checked against the code when it was
-// written: public GitHub repositories only, TypeScript and JavaScript, the
+// written: public GitHub repositories only, the languages in
+// parser/languages/registry.ts, the
 // risk signals in lib/impact/risk.ts, and what the database keeps. Change the
 // copy when those change.
 
@@ -93,7 +102,7 @@ function Hero() {
         <div className="mx-auto max-w-3xl text-center">
           <p className="impact-step inline-flex items-center gap-2 rounded-full border border-line bg-white/[0.03] px-3 py-1 text-xs text-muted">
             <span aria-hidden="true" className="size-1.5 rounded-full bg-positive" />
-            Early access · Public GitHub repositories · TypeScript and JavaScript
+            Early access · Public GitHub repositories · TypeScript, Python, Java, Go and more
           </p>
           <h1
             id="hero-heading"
@@ -211,7 +220,7 @@ function MiniGraph({ stage }: { stage: 1 | 2 | 3 | 4 }) {
 const steps: { title: string; text: string; stage: 1 | 2 | 3 | 4 }[] = [
   {
     title: "Connect a repository",
-    text: "Add a public GitHub repository by its URL. Impactlia maps the imports between its TypeScript and JavaScript files.",
+    text: "Add a public GitHub repository by its URL. Impactlia maps the imports between its source files.",
     stage: 1,
   },
   {
@@ -450,7 +459,7 @@ const trustFacts = [
   },
   {
     title: "Source is read, then deleted",
-    text: "To build the dependency map, the repository archive is unpacked into a temporary folder. Only source and JSON files are written out, nothing in the repository is run, and the folder is deleted when the run ends.",
+    text: "To build the dependency map, the repository is downloaded into a temporary folder: the whole commit, or for a large repository only the files that changed since its last analysis. Only source files and the project files that describe them are written out, nothing in the repository is run, and the folder is deleted when the run ends.",
   },
   {
     title: "What is kept",
@@ -489,6 +498,97 @@ function Trust() {
         One exception: when you ask for an AI explanation of a file, that file’s source and its
         listed dependencies are sent to an AI model provider to write the answer, and the request
         is recorded in a trace. Nothing is sent unless you ask.
+      </p>
+    </Section>
+  );
+}
+
+// What Impactlia does with a language's files, from the least to the most.
+// Each is reached at one capability level (parser/languages/registry.ts) and
+// holds at every level above it, so a row's marks read left to right as how
+// far that language is understood.
+const languageAbilities: { label: string; from: CapabilityLevel }[] = [
+  { label: "Imports mapped", from: "dependency-aware" },
+  { label: "Related tests found", from: "dependency-aware" },
+  { label: "Test scenarios suggested", from: "test-aware" },
+  { label: "Changed code type-checked", from: "advanced" },
+];
+
+const languageNotes: Partial<Record<SupportedLanguage, string>> = {
+  typescript: "Including Next.js, NestJS, Express and React roles and routes",
+  javascript: "Including CommonJS",
+  python: "pytest tests and commands",
+  c: "Through #include",
+  cpp: "Through #include",
+};
+
+const reaches = (level: CapabilityLevel, from: CapabilityLevel) =>
+  CAPABILITY_ORDER.indexOf(level) >= CAPABILITY_ORDER.indexOf(from);
+
+function Languages() {
+  return (
+    <Section id="languages">
+      <SectionHeading
+        id="languages"
+        eyebrow="Languages"
+        intro="Every relationship comes from reading the code itself. Each row shows exactly what Impactlia does for that language today."
+      >
+        What Impactlia reads, language by language.
+      </SectionHeading>
+      <div data-reveal="panel" className="panel mt-12 overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-left text-sm">
+          <caption className="sr-only">
+            What Impactlia does with files in each supported language
+          </caption>
+          <thead>
+            <tr className="border-b border-line text-xs text-muted">
+              <th scope="col" className="px-5 py-4 font-medium">
+                Language
+              </th>
+              {languageAbilities.map((ability) => (
+                <th key={ability.label} scope="col" className="w-28 px-3 py-4 text-center font-medium">
+                  {ability.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {LANGUAGES.map((language) => {
+              const { label, extensions, capability } = SUPPORTED_LANGUAGES[language];
+              return (
+                <tr key={language} className="border-b border-line last:border-b-0">
+                  <th scope="row" className="px-5 py-3.5 font-normal">
+                    <span className="font-semibold">{label}</span>{" "}
+                    <span className="text-muted">{extensions.slice(0, 3).join(" ")}</span>
+                    {languageNotes[language] && (
+                      <span className="block text-xs text-muted">{languageNotes[language]}</span>
+                    )}
+                  </th>
+                  {languageAbilities.map((ability) => {
+                    const yes = reaches(capability, ability.from);
+                    return (
+                      <td key={ability.label} className="px-3 py-3.5 text-center">
+                        <span
+                          aria-hidden="true"
+                          className={`inline-block size-3 rounded-full ${
+                            yes ? "bg-accent" : "border border-line"
+                          }`}
+                        />
+                        <span className="sr-only">{yes ? "Yes" : "No"}</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p data-reveal className="mt-6 max-w-3xl text-sm text-muted">
+        {DETECTED_LANGUAGES.map((language) => language.label).join(", ").replace(/, ([^,]*)$/, " and $1")}{" "}
+        files are recognised but not read yet: when a pull request changes one, the report names
+        it and says nothing is known about what depends on it. Several languages in one repository
+        are mapped together, without linking files across languages unless one names the other.
       </p>
     </Section>
   );
@@ -544,7 +644,7 @@ const questions = [
   {
     question: "Which languages and repositories does it support?",
     answer:
-      "TypeScript and JavaScript, including CommonJS, with extra understanding of Next.js, React, Express and NestJS files. Only public GitHub repositories for now; private repositories are not supported yet.",
+      "TypeScript and JavaScript, including CommonJS, with extra understanding of Next.js, React, Express and NestJS files, and type-checking of changed code. Python, with related pytest tests and suggested test scenarios. Java, Go, C#, C, C++, Rust and PHP, with their dependencies and related tests found from imports and names. Ruby, Kotlin, Swift, Dart and SQL files are recognised but not yet read. Only public GitHub repositories for now; private repositories are not supported yet.",
   },
   {
     question: "Can I use it today?",
@@ -671,6 +771,7 @@ export default function LandingPage() {
         <ValidationStory />
         <WalkthroughSection />
         <Trust />
+        <Languages />
         <EarlyAccess />
         <Faq />
         <FinalCta />

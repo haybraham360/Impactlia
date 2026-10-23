@@ -1,3 +1,4 @@
+import { supportedLanguageOf } from "../../parser/languages/registry";
 import { byText } from "../graph/traverse";
 import type { ChangeMapping } from "./analyze";
 import type {
@@ -73,6 +74,20 @@ const CONFIG_POINTS = 10;
 const CONFIG_OR_SCHEMA: { label: string; test: RegExp }[] = [
   { label: "package manifest", test: /(^|\/)package\.json$/ },
   { label: "lockfile", test: /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb?)$/ },
+  {
+    label: "Python dependency manifest",
+    test: /(^|\/)(pyproject\.toml|setup\.cfg|setup\.py|requirements[\w.-]*\.txt|Pipfile)$/,
+  },
+  { label: "Python lockfile", test: /(^|\/)(poetry\.lock|Pipfile\.lock|uv\.lock|pdm\.lock)$/ },
+  { label: "Go module file", test: /(^|\/)go\.(mod|sum|work)$/ },
+  { label: "Cargo manifest or lockfile", test: /(^|\/)Cargo\.(toml|lock)$/ },
+  {
+    label: "Java build file",
+    test: /(^|\/)(pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|gradle\.properties)$/,
+  },
+  { label: ".NET project file", test: /\.(csproj|sln|props|targets)$/ },
+  { label: "Composer manifest or lockfile", test: /(^|\/)composer\.(json|lock)$/ },
+  { label: "C or C++ build file", test: /(^|\/)(CMakeLists\.txt|[^/]+\.cmake|Makefile|meson\.build|BUILD(\.bazel)?)$/ },
   { label: "TypeScript or JavaScript config", test: /(^|\/)[jt]sconfig(\.[\w-]+)?\.json$/ },
   { label: "tool config", test: /(^|\/)[^/]+\.config\.[cm]?[jt]s$/ },
   { label: "environment file", test: /(^|\/)\.env(\.[\w-]+)?$/ },
@@ -81,7 +96,7 @@ const CONFIG_OR_SCHEMA: { label: string; test: RegExp }[] = [
   { label: "CI workflow", test: /^\.github\/workflows\/[^/]+\.ya?ml$/ },
 ];
 
-const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
+const isSourceFile = (path: string) => supportedLanguageOf(path) !== null;
 
 export const FACTOR_RULES: Record<RiskFactorId, { label: string; rule: string }> = {
   "dependency-reach": {
@@ -262,7 +277,7 @@ export function assessRisk(input: ScoreInput): RiskAssessment {
   }
 
   // ── Size ─────────────────────────────────────────────────────────────────
-  const source = changes.files.filter((file) => SOURCE_FILE.test(file.path));
+  const source = changes.files.filter((file) => isSourceFile(file.path));
   const lines = source.reduce((sum, file) => sum + file.additions + file.deletions, 0);
   const size =
     source.length >= SIZE.large.files || lines >= SIZE.large.lines
@@ -307,7 +322,7 @@ export function assessRisk(input: ScoreInput): RiskAssessment {
   // Each gap lowers the confidence to at most the level beside it.
   const found: { to: Exclude<Confidence, "high">; reason: string }[] = [];
   const lower = (to: Exclude<Confidence, "high">, reason: string) => found.push({ to, reason });
-  const sourceChanged = mapping.changed.filter((file) => SOURCE_FILE.test(file.path));
+  const sourceChanged = mapping.changed.filter((file) => isSourceFile(file.path));
   const sourceAnalysed = sourceChanged.filter((file) => file.analysisState === "analysed");
   if (!changes.complete) {
     lower("low", `GitHub returned ${changes.files.length} of the ${changes.reportedFileCount} changed files; the rest were not analysed.`);
