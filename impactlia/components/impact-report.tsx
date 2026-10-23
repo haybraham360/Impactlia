@@ -3,6 +3,11 @@ import { CodeIssues, affectedFileAnchor } from "@/components/code-issues";
 import { RiskAssessmentDetail } from "@/components/risk-assessment";
 import { TestRecommendations } from "@/components/test-recommendations";
 import type { ReactNode } from "react";
+import {
+  CAPABILITY_LEVELS,
+  describeLanguage,
+  type CapabilityLevel,
+} from "@/parser/languages/registry";
 import type { RiskLevel } from "@/lib/impact/report";
 import { IMPACT_DEPTH, SIGNALS } from "@/lib/impact/risk";
 import {
@@ -265,6 +270,68 @@ function AffectedFiles({ files, total }: { files: StoredAffectedFile[]; total: n
 
 // The report's sections in reading order, kept in view under the top bar so
 // any part of a long report is one step away. Counts are the report's own.
+// What was read and how far each language is understood, kept folded away:
+// it explains the report rather than adding to it.
+function HowAnalysed({ report }: { report: StoredReport }) {
+  const selective = report.limitations.some((limitation) => limitation.id === "selective-analysis");
+  const groups = new Map<string, { capability: CapabilityLevel | null; files: number; analysed: number }>();
+  for (const file of report.changed) {
+    const language = describeLanguage(file.path);
+    const label = language?.label ?? "Other files";
+    const group = groups.get(label) ?? { capability: language?.capability ?? null, files: 0, analysed: 0 };
+    group.files += 1;
+    if (file.analysed) group.analysed += 1;
+    groups.set(label, group);
+  }
+  const rows = [...groups].sort((a, b) => b[1].files - a[1].files || (a[0] < b[0] ? -1 : 1));
+  return (
+    <details className="mb-5 rounded-xl border border-line px-5 py-3 text-sm">
+      <summary className="cursor-pointer font-medium">How this was analysed</summary>
+      <div className="mt-3 space-y-3">
+        <p className="max-w-prose text-muted">
+          {selective
+            ? "The repository's stored analysis was updated with the files that changed since it, which were downloaded one by one. The limitation below says exactly what was read."
+            : "The pull request's head commit was downloaded and every source file in it read."}
+        </p>
+        {rows.length > 0 && (
+          <div className="overflow-x-auto">
+          <table className="w-full max-w-xl text-left">
+            <thead className="text-xs text-muted">
+              <tr>
+                <th className="py-1 font-normal">Changed files</th>
+                <th className="py-1 text-right font-normal">Files</th>
+                <th className="py-1 text-right font-normal">In the graph</th>
+                <th className="py-1 pl-4 font-normal">What is understood</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([label, group]) => (
+                <tr key={label} className="border-t border-line">
+                  <td className="py-1.5">{label}</td>
+                  <td className="py-1.5 text-right tabular-nums">{numberFormat.format(group.files)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{numberFormat.format(group.analysed)}</td>
+                  <td
+                    className="py-1.5 pl-4 text-muted"
+                    title={group.capability ? CAPABILITY_LEVELS[group.capability].rule : undefined}
+                  >
+                    {group.capability ? CAPABILITY_LEVELS[group.capability].label : "Not a recognised language"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+        <p className="max-w-prose text-xs text-muted">
+          {Object.values(CAPABILITY_LEVELS)
+            .map((level) => `${level.label}: ${level.rule}`)
+            .join(" ")}
+        </p>
+      </div>
+    </details>
+  );
+}
+
 function ReportNav({ items }: { items: { href: string; label: ReactNode; count: number }[] }) {
   return (
     <nav
@@ -503,6 +570,7 @@ export function ImpactReport({ run, report }: { run: AnalysisRun; report: Stored
         title="Coverage and limitations"
         note="What this analysis could not establish. A dependency that runs through one of these is missing from the report."
       >
+        <HowAnalysed report={report} />
         {report.limitations.length === 0 ? (
           <Empty>
             None were recorded for this run. The graph still covers only static imports the

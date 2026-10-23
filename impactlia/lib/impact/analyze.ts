@@ -1,4 +1,5 @@
 import type { FileNode, ParserOutput } from "../../parser/contract";
+import { describeLanguage, supportedLanguageOf, SUPPORTED_LANGUAGE_NAMES } from "../../parser/languages/registry";
 import { ROLES } from "../../parser/roles";
 import { summariseCoverage } from "../graph/coverage";
 import {
@@ -48,7 +49,6 @@ const EVIDENCE_LIMIT = 50;
 const FACT_LIMIT = 10;
 const LIMITATION_FILES = 20;
 
-const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 
 const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`;
@@ -306,7 +306,7 @@ export function scoreImpact(
 
   const coverage = summariseCoverage(output);
   const unresolvedImports = coverage.unresolvedByReason.reduce((sum, row) => sum + row.count, 0);
-  const removedSource = removed.filter((path) => SOURCE_FILE.test(path));
+  const removedSource = removed.filter((path) => supportedLanguageOf(path) !== null);
   const coverageFacts: string[] = [];
   if (!changes.complete) {
     coverageFacts.push(
@@ -425,8 +425,23 @@ export function scoreImpact(
   if (outsideGraph.length > 0) {
     limit(
       "outside-graph",
-      `${plural(outsideGraph.length, "changed file is", "changed files are")} not TypeScript or JavaScript source, or in a folder the graph leaves out. Nothing is known about what depends on ${outsideGraph.length === 1 ? "it" : "them"}.`,
+      `${plural(outsideGraph.length, "changed file is", "changed files are")} not source in a language the graph reads (${SUPPORTED_LANGUAGE_NAMES}), or in a folder the graph leaves out. Nothing is known about what depends on ${outsideGraph.length === 1 ? "it" : "them"}.`,
       outsideGraph,
+    );
+  }
+  // Languages recognised by extension and not parsed. Saying which is all
+  // that is known about them; it is not analysis.
+  const detected = new Map<string, string[]>();
+  for (const path of [...outsideGraph, ...removed].sort(byText)) {
+    const language = describeLanguage(path);
+    if (language?.capability !== "detected") continue;
+    detected.set(language.label, [...(detected.get(language.label) ?? []), path]);
+  }
+  for (const [label, paths] of [...detected].sort((a, b) => byText(a[0], b[0]))) {
+    limit(
+      `language-detected-only:${label}`,
+      `${plural(paths.length, `changed ${label} file`, `changed ${label} files`)}: ${label} is recognised by its file extension but not parsed yet, so ${paths.length === 1 ? "its" : "their"} imports and dependents are unknown.`,
+      paths,
     );
   }
   if (missing.length > 0) {

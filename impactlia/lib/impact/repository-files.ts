@@ -15,7 +15,10 @@ export type RepositoryFiles = {
   exists(path: string): boolean;
 };
 
-export function repositoryFiles(directory: string): RepositoryFiles {
+// `readable`, when given, is the files whose contents are on disk: the rest
+// of a tree laid out by the selective path are empty stand-ins, and read as
+// absent rather than as empty files.
+export function repositoryFiles(directory: string, readable?: ReadonlySet<string>): RepositoryFiles {
   const root = fs.realpathSync.native(path.resolve(directory));
   const locate = (relative: string): string | null => {
     if (relative === "" || relative.startsWith("/") || relative.split("/").includes("..")) return null;
@@ -28,6 +31,7 @@ export function repositoryFiles(directory: string): RepositoryFiles {
   };
   return {
     read(relative) {
+      if (readable && !readable.has(relative)) return null;
       const file = locate(relative);
       if (!file) return null;
       try {

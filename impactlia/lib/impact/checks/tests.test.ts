@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import { parseRepository } from "../../../parser/parse-repository";
 import { calculateBlastRadius, mapChangedFiles } from "../analyze";
 import { readPatch } from "../patch";
@@ -10,6 +10,13 @@ import type { ChangeType, LineRange, PullRequestFile, TestRecommendation } from 
 import { repositoryFiles } from "../repository-files";
 import { changedDeclarations } from "../syntax";
 import { recommendTests } from "../tests";
+import { loadGrammars, type Grammars } from "../../../parser/languages/tree-sitter";
+
+// The parser's grammars load asynchronously, once, before any test.
+let grammars: Grammars;
+before(async () => {
+  grammars = await loadGrammars();
+});
 
 // Run with `pnpm check:impact`. Nothing here touches the network. Each
 // repository is written out below and parsed by the real parser, so every
@@ -40,11 +47,11 @@ function recommend(files: Record<string, string>, changed: PullRequestFile[]) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, content);
     }
-    const output = parseRepository(root, []);
+    const output = parseRepository(root, grammars);
     const changes = { files: changed, complete: true, reportedFileCount: changed.length };
     const mapping = mapChangedFiles(output, changes);
     const radius = calculateBlastRadius(output, mapping.starts);
-    return { output, ...recommendTests(output, changes, mapping, radius, repositoryFiles(root)) };
+    return { output, ...recommendTests(output, changes, mapping, radius, repositoryFiles(root), grammars) };
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

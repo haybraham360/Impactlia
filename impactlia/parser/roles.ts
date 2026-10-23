@@ -79,7 +79,7 @@ export const ROLES = {
   },
   test: {
     label: "Tests",
-    rule: "Named *.test.* or *.spec.*, or inside a __tests__ directory.",
+    rule: "Named *.test.* or *.spec.*, or inside a __tests__ directory. Elsewhere, each language's default: test_*.py or *_test.py, *_test.go, *Test.java (and *Tests, *TestCase, *IT), *Test.cs or *Tests.cs, *Test.php, a file directly in a Rust tests folder, and *_test, *_unittest or test_* in C and C++.",
   },
   config: {
     label: "Configuration",
@@ -87,7 +87,7 @@ export const ROLES = {
   },
   declaration: {
     label: "Type declarations",
-    rule: "A type declaration file (*.d.ts).",
+    rule: "A type declaration file (*.d.ts), or a Python type stub (*.pyi).",
   },
   other: {
     label: "Other source files",

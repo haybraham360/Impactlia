@@ -1,4 +1,5 @@
-import type { FileNode, ParserOutput } from "../../parser/contract";
+import type { FileNode, Language, ParserOutput } from "../../parser/contract";
+import type { Grammars } from "../../parser/languages/tree-sitter";
 import { byText } from "../graph/traverse";
 import type { BlastRadius, ChangeMapping } from "./analyze";
 import type {
@@ -13,6 +14,8 @@ import type {
   TestRelationship,
 } from "./report";
 import { TEST_RELATIONSHIPS } from "./report";
+import { SUPPORTED_LANGUAGES, supportedLanguageOf } from "../../parser/languages/registry";
+import { changedPythonDeclarations, pythonImportsOf } from "./python-syntax";
 import type { RepositoryFiles } from "./repository-files";
 import { CRITICAL_ROLES, DIRECT_DEPENDENTS_MEDIUM } from "./risk";
 import { TEST_RULES, TEST_RUNNERS } from "./test-rules";
@@ -22,6 +25,7 @@ import {
   type ChangedDeclaration,
   type ChangedLines,
   type FeatureKind,
+  type ImportBinding,
 } from "./syntax";
 
 // The whole test-recommendation methodology: which files count as tests, how
@@ -38,6 +42,10 @@ import {
 //
 // Nothing is run. Files are read as text, and only the changed files and the
 // test files that import them.
+//
+// TypeScript and JavaScript are read with the TypeScript parser (syntax.ts),
+// Python with tree-sitter (python-syntax.ts). The method is the same for both;
+// only the syntax each feature kind stands for, and the test command, differ.
 
 export const EXISTING_TEST_LIMIT = 30;
 export const SCENARIO_LIMIT = 12;
@@ -92,11 +100,87 @@ function linesText(lines: readonly number[]): string {
 
 const span = (from: number, to: number) => (from === to ? `line ${from}` : `lines ${from}–${to}`);
 
-// "src/format.test.ts" → "format"; "src/__tests__/format.tsx" → "format".
+// "src/format.test.ts" → "format"; "src/__tests__/format.tsx" → "format";
+// "tests/test_format.py", "format_test.go" and "format_unittest.cc" →
+// "format"; "FormatTest.java", "FormatTests.cs" and "FormatTest.php" →
+// "Format". Each language's own test naming is undone, and only its own.
 function stemOf(path: string): string {
   const base = path.slice(path.lastIndexOf("/") + 1);
-  return base.replace(/\.[cm]?[jt]sx?$/, "").replace(/\.(test|spec)$/, "");
+  const dot = base.lastIndexOf(".");
+  const extension = dot <= 0 ? "" : base.slice(dot);
+  const name = dot <= 0 ? base : base.slice(0, dot);
+  switch (supportedLanguageOf(base)) {
+    case "python":
+      return name.replace(/^test_/, "").replace(/_test$/, "");
+    case "go":
+      return name.replace(/_test$/, "");
+    case "java":
+    case "csharp":
+    case "php":
+      return name.replace(/(.)(Tests?|TestCase|IT)$/, "$1");
+    case "c":
+    case "cpp":
+      return name.replace(/^test_/, "").replace(/_(unit)?test$/, "");
+    case "rust":
+      return name;
+    default:
+      return extension === "" ? base : base.replace(/\.[cm]?[jt]sx?$/, "").replace(/\.(test|spec)$/, "");
+  }
 }
+
+// How a language's changed declarations and a test's imports are read. A
+// language with none has its tests matched by import and by name only, and
+// no scenarios are suggested for it.
+type SyntaxReader = {
+  declarations: (path: string, text: string, lines: ChangedLines) => ChangedDeclaration[];
+  imports: (path: string, text: string) => ImportBinding[];
+};
+function syntaxReader(language: Language, grammars: Grammars): SyntaxReader | null {
+  if (language === "typescript" || language === "javascript") {
+    return { declarations: changedDeclarations, imports: importsOf };
+  }
+  if (language === "python") {
+    return {
+      declarations: (_path, text, lines) => changedPythonDeclarations(grammars, text, lines),
+      imports: (_path, text) => pythonImportsOf(grammars, text),
+    };
+  }
+  return null;
+}
+
+// A module named only for its folder says nothing about what tests it.
+const PACKAGE_STEMS = new Set(["index", "__init__", "mod"]);
+
+// The words a scenario uses for the syntax it points at.
+type Wording = {
+  throw: string;
+  catch: string;
+  branch: string;
+  missing: string;
+  fallback: string;
+  fallbackEvidence: string;
+};
+const JAVASCRIPT_WORDING: Wording = {
+  throw: "throw",
+  catch: "catch",
+  branch: "if, ?: or switch case",
+  missing: "undefined or null",
+  fallback: "a default value, ?? or ?.",
+  fallbackEvidence: "Default, ?? or ?.",
+};
+// Only the languages scenarios are suggested for (see syntaxReader).
+const WORDING: Partial<Record<Language, Wording>> = {
+  typescript: JAVASCRIPT_WORDING,
+  javascript: JAVASCRIPT_WORDING,
+  python: {
+    throw: "raise",
+    catch: "except",
+    branch: "if, elif, conditional expression or match case",
+    missing: "left out or None",
+    fallback: "a default parameter value",
+    fallbackEvidence: "Default parameter value",
+  },
+};
 
 const quoted = (value: string) => (/^[\w./@+-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`);
 
@@ -161,12 +245,20 @@ export function recommendTests(
   mapping: ChangeMapping,
   radius: BlastRadius,
   files: RepositoryFiles,
+  grammars: Grammars,
 ): TestFindings {
   const nodeById = new Map<string, FileNode>(output.files.map((file) => [file.id, file]));
   const nodeByPath = new Map<string, FileNode>(output.files.map((file) => [file.path, file]));
   const changeByPath = new Map(changes.files.map((file) => [file.path, file]));
   const edgeByPair = new Map(output.edges.map((edge) => [`${edge.source}\n${edge.target}`, edge]));
   const pathOf = (id: string) => nodeById.get(id)?.path ?? id;
+  // Every file of the repository that is not source, by path: where build
+  // files (pom.xml, *.csproj) are looked for.
+  const projectFiles = output.excluded.filter((entry) => entry.type === "file").map((entry) => entry.path);
+  const readerOf = (path: string) => {
+    const language = nodeByPath.get(path)?.language;
+    return language ? syntaxReader(language, grammars) : null;
+  };
   const { index } = radius;
 
   // ── Which files are tests ────────────────────────────────────────────────
@@ -220,6 +312,15 @@ export function recommendTests(
   for (const path of changedCode) {
     const change = changeByPath.get(path);
     if (!change) continue;
+    const reader = readerOf(path);
+    if (!reader) {
+      const language = nodeByPath.get(path)?.language;
+      symbolsUnread.push({
+        path,
+        reason: `Which declarations changed is not read for ${language ? SUPPORTED_LANGUAGES[language].label : "these"} files yet; tests were matched to it by import and by name.`,
+      });
+      continue;
+    }
     let lines: ChangedLines;
     if (change.changeType === "added") lines = { added: "all", removedAt: [] };
     else if (change.addedLines === null) {
@@ -241,7 +342,7 @@ export function recommendTests(
       symbolsUnread.push({ path, reason: "The file could not be read from the head commit." });
       continue;
     }
-    let found = changedDeclarations(path, text, lines);
+    let found = reader.declarations(path, text, lines);
     // A new file has no earlier callers for a signature to have changed for.
     if (change.changeType === "added") {
       found = found.map((declaration) => {
@@ -273,8 +374,9 @@ export function recommendTests(
   const bindingsOf = (path: string) => {
     if (testReads >= TEST_READ_LIMIT) return null;
     testReads += 1;
-    const text = files.read(path);
-    return text === null ? null : importsOf(path, text);
+    const reader = readerOf(path);
+    const text = reader ? files.read(path) : null;
+    return reader && text !== null ? reader.imports(path, text) : null;
   };
 
   const matches = new Map<string, ExistingMatch>();
@@ -414,7 +516,7 @@ export function recommendTests(
   for (const path of changedCode) {
     if (directTestsOf.has(path)) continue;
     const stem = stemOf(path);
-    if (stem === "index") continue;
+    if (PACKAGE_STEMS.has(stem)) continue;
     for (const test of (testsByStem.get(stem) ?? []).slice(0, NAME_MATCHES_PER_FILE)) {
       if (matches.has(test)) continue;
       matches.set(test, {
@@ -476,7 +578,7 @@ export function recommendTests(
   // Only worth naming when there is something for it to test.
   const command =
     changedCode.length > 0 || existing.length > 0
-      ? findCommand(files, nodeByPath, strongTests)
+      ? findCommand(files, nodeByPath, strongTests, changedCode, frameworks, projectFiles)
       : { recommendation: null, detail: "No changed source file or related test was found, so no test command is suggested." };
 
   // ── Scenarios ────────────────────────────────────────────────────────────
@@ -510,6 +612,7 @@ export function recommendTests(
           (route.handler === declaration.name || declaration.exportedAs.includes(route.handler)),
       );
       const priority = priorityFor(path, declaration, routes.length > 0);
+      const words = WORDING[node.language] ?? JAVASCRIPT_WORDING;
       const own: { recommendation: TestRecommendation; order: number }[] = [];
       const scenario = (
         kind: FeatureKind | "route",
@@ -575,17 +678,17 @@ export function recommendTests(
           "throw",
           features.throw,
           `Drive ${declaration.name} into the throw at ${linesText(features.throw)} and check what its caller receives.`,
-          "This pull request adds a throw statement there.",
-          [`throw at ${linesText(features.throw)}.`],
+          `This pull request adds a ${words.throw} statement there.`,
+          [`${words.throw} at ${linesText(features.throw)}.`],
         );
       }
       if (features.catch) {
         scenario(
           "catch",
           features.catch,
-          `Make the operation guarded by the catch at ${linesText(features.catch)} fail, and check what ${declaration.name} does instead.`,
+          `Make the operation guarded by the ${words.catch} at ${linesText(features.catch)} fail, and check what ${declaration.name} does instead.`,
           "This pull request adds or edits error handling there.",
-          [`catch at ${linesText(features.catch)}.`],
+          [`${words.catch} at ${linesText(features.catch)}.`],
         );
       }
       if (features.branch) {
@@ -593,7 +696,7 @@ export function recommendTests(
           "branch",
           features.branch,
           `Cover the case where the condition at ${linesText(features.branch)} holds and the case where it does not.`,
-          `This pull request adds or edits ${plural(features.branch.length, "condition", "conditions")} (if, ?: or switch case) in ${declaration.name}.`,
+          `This pull request adds or edits ${plural(features.branch.length, "condition", "conditions")} (${words.branch}) in ${declaration.name}.`,
           [`Conditions at ${linesText(features.branch)}.`],
         );
       }
@@ -601,9 +704,9 @@ export function recommendTests(
         scenario(
           "fallback",
           features.fallback,
-          `Call ${declaration.name} with the value guarded at ${linesText(features.fallback)} absent (undefined or null) and present.`,
-          "This pull request adds a default value, ?? or ?. there, which behaves differently when a value is missing.",
-          [`Default, ?? or ?. at ${linesText(features.fallback)}.`],
+          `Call ${declaration.name} with the value guarded at ${linesText(features.fallback)} absent (${words.missing}) and present.`,
+          `This pull request adds ${words.fallback} there, which behaves differently when a value is missing.`,
+          [`${words.fallbackEvidence} at ${linesText(features.fallback)}.`],
         );
       }
       if (features.await && !features.catch) {
@@ -611,7 +714,7 @@ export function recommendTests(
           "await",
           features.await,
           `Make the call awaited at ${linesText(features.await)} reject, and check how ${declaration.name} responds.`,
-          "This pull request adds an await there, and no catch was added with it.",
+          `This pull request adds an await there, and no ${words.catch} was added with it.`,
           [`await at ${linesText(features.await)}.`],
         );
       }
@@ -811,11 +914,223 @@ function testScriptOf(manifest: Record<string, unknown> | null): string | null {
     : null;
 }
 
+type CommandFinding = { recommendation: TestRecommendation | null; detail: string };
+
+// The command for the language most of the related tests are in; with no
+// related test, the language of the changed code. A tie goes to the
+// package.json command, the one Impactlia has always looked for. Each is
+// named only from the repository's own build files, and never run.
 function findCommand(
   files: RepositoryFiles,
   nodeByPath: ReadonlyMap<string, FileNode>,
   tests: readonly string[],
-): { recommendation: TestRecommendation | null; detail: string } {
+  changedCode: readonly string[],
+  frameworks: ReadonlySet<string>,
+  projectFiles: readonly string[],
+): CommandFinding {
+  const deciding = tests.length > 0 ? tests : changedCode;
+  const counts = new Map<Language, number>();
+  for (const path of deciding) {
+    const language = nodeByPath.get(path)?.language;
+    if (language) counts.set(language, (counts.get(language) ?? 0) + 1);
+  }
+  const javascript = (counts.get("typescript") ?? 0) + (counts.get("javascript") ?? 0);
+  let language: Language | null = null;
+  let most = javascript;
+  for (const [candidate, count] of counts) {
+    if (candidate !== "typescript" && candidate !== "javascript" && count > most) {
+      language = candidate;
+      most = count;
+    }
+  }
+  const own = tests.filter((test) => language !== null && nodeByPath.get(test)?.language === language);
+  switch (language) {
+    case null:
+      return findPackageCommand(files, nodeByPath, tests);
+    case "python":
+      return findPytestCommand(files, own, frameworks);
+    case "go":
+      return findBuildCommand(files, own, BUILD_TOOLS.go);
+    case "rust":
+      return findBuildCommand(files, own, BUILD_TOOLS.rust);
+    case "java": {
+      const maven = findBuildCommand(files, own, BUILD_TOOLS.maven);
+      if (maven.recommendation) return maven;
+      const gradle = findBuildCommand(files, own, BUILD_TOOLS.gradle);
+      return gradle.recommendation
+        ? gradle
+        : { recommendation: null, detail: "No test command could be identified: no pom.xml or build.gradle was found beside the related tests or at the repository root." };
+    }
+    case "csharp":
+      return findDotnetCommand(projectFiles, own);
+    case "php":
+      return findBuildCommand(files, own, BUILD_TOOLS.phpunit);
+    case "c":
+    case "cpp":
+      return {
+        recommendation: null,
+        detail: "No test command is suggested for C or C++: their build systems are too varied to name one from the files alone.",
+      };
+  }
+}
+
+const parentFolder = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+
+// The folders above the related tests, nearest first, then the root.
+function foldersAbove(tests: readonly string[]): string[] {
+  const folders: string[] = [];
+  for (const test of [...tests].sort(byText)) {
+    for (let folder = parentFolder(test); ; folder = parentFolder(folder)) {
+      if (!folders.includes(folder)) folders.push(folder);
+      if (folder === "") break;
+    }
+  }
+  if (!folders.includes("")) folders.push("");
+  return folders;
+}
+
+function commandRecommendation(
+  command: string,
+  root: string,
+  narrowed: number,
+  evidence: string[],
+  rationale: string,
+  confidence: Confidence,
+): TestRecommendation {
+  return {
+    kind: "test_command",
+    title: narrowed > 0 ? `Run the ${plural(narrowed, "related test file", "related test files")}` : "Run the repository's tests",
+    description: root === "" ? `Run ${command}.` : `Run ${command} in ${root}.`,
+    rationale,
+    priority: "medium",
+    status: "found",
+    confidence,
+    relationship: null,
+    symbol: null,
+    riskAddressed: null,
+    relatedChangedFiles: [],
+    relatedTestFiles: [],
+    command,
+    workingDirectory: root,
+    evidence,
+  };
+}
+
+// A tool found by its build file, nearest the related tests first. `narrow`
+// turns the related tests, relative to the build file's folder, into the
+// arguments that run only them, or null when the tool cannot.
+type BuildTool = {
+  label: string;
+  file: string;
+  command: string;
+  narrow: ((tests: string[]) => string | null) | null;
+  // A file beside the build file that changes the command, like gradlew.
+  wrapper?: { file: string; command: string };
+};
+const className = (path: string) => path.slice(path.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "");
+const BUILD_TOOLS = {
+  go: {
+    label: "Go",
+    file: "go.mod",
+    command: "go test",
+    // A package is a folder; ./... would run everything.
+    narrow: (tests) => [...new Set(tests.map((test) => `./${parentFolder(test) || "."}`.replace(/\/\.$/, "")))].join(" "),
+  },
+  rust: { label: "Cargo", file: "Cargo.toml", command: "cargo test", narrow: null },
+  maven: {
+    label: "Maven",
+    file: "pom.xml",
+    command: "mvn test",
+    narrow: (tests) => `-Dtest=${[...new Set(tests.map(className))].join(",")}`,
+  },
+  gradle: {
+    label: "Gradle",
+    file: "build.gradle",
+    command: "gradle test",
+    narrow: (tests) => [...new Set(tests.map(className))].map((name) => `--tests ${name}`).join(" "),
+    wrapper: { file: "gradlew", command: "./gradlew test" },
+  },
+  phpunit: {
+    label: "PHPUnit",
+    file: "phpunit.xml",
+    command: "vendor/bin/phpunit",
+    // PHPUnit takes one test file or folder.
+    narrow: (tests) => (tests.length === 1 ? quoted(tests[0]) : null),
+  },
+} satisfies Record<string, BuildTool>;
+
+function findBuildCommand(files: RepositoryFiles, tests: readonly string[], tool: BuildTool): CommandFinding {
+  // Gradle's Kotlin build file and PHPUnit's distributed config count too.
+  const names = [tool.file, `${tool.file}.kts`, `${tool.file}.dist`];
+  for (const folder of foldersAbove(tests)) {
+    const found = names.map((name) => (folder === "" ? name : `${folder}/${name}`)).find((at) => files.exists(at));
+    if (!found) continue;
+    const evidence = [`${found} is present.`];
+    let command = tool.command;
+    const wrapper = tool.wrapper && files.exists(folder === "" ? tool.wrapper.file : `${folder}/${tool.wrapper.file}`);
+    if (tool.wrapper && wrapper) {
+      command = tool.wrapper.command;
+      evidence.push(`The ${tool.wrapper.file} wrapper is beside it.`);
+    }
+    const local = tests
+      .filter((test) => folder === "" || test.startsWith(`${folder}/`))
+      .map((test) => (folder === "" ? test : test.slice(folder.length + 1)));
+    const narrowed = tool.narrow && local.length > 0 && local.length <= PATHS_IN_COMMAND ? tool.narrow(local) : null;
+    if (narrowed) {
+      command = `${command} ${narrowed}`;
+      evidence.push(`Narrowed to the related tests, which ${tool.label} can select.`);
+    }
+    return {
+      recommendation: commandRecommendation(
+        command,
+        folder,
+        narrowed ? local.length : 0,
+        evidence,
+        `${tool.label}'s usual test command, chosen because ${found} is present. Impactlia has not run it and has no test results.`,
+        "high",
+      ),
+      detail: evidence.join(" "),
+    };
+  }
+  return {
+    recommendation: null,
+    detail: `No test command could be identified: no ${tool.file} was found beside the related tests or at the repository root.`,
+  };
+}
+
+function findDotnetCommand(projectFiles: readonly string[], tests: readonly string[]): CommandFinding {
+  // The project the related tests are in, else a solution at the root.
+  const projects = projectFiles.filter((path) => path.endsWith(".csproj"));
+  const project = foldersAbove(tests)
+    .flatMap((folder) => projects.filter((path) => parentFolder(path) === folder))
+    .find(() => true);
+  const solution = projectFiles.find((path) => !path.includes("/") && path.endsWith(".sln"));
+  const target = project ?? solution;
+  if (!target) {
+    return {
+      recommendation: null,
+      detail: "No test command could be identified: no .csproj beside the related tests and no .sln at the repository root was found.",
+    };
+  }
+  const command = `dotnet test ${quoted(target)}`;
+  return {
+    recommendation: commandRecommendation(
+      command,
+      "",
+      0,
+      [`${target} is present.`],
+      "The .NET command that builds and runs a project's tests. Impactlia has not run it and has no test results.",
+      project ? "high" : "medium",
+    ),
+    detail: `${target} is present.`,
+  };
+}
+
+function findPackageCommand(
+  files: RepositoryFiles,
+  nodeByPath: ReadonlyMap<string, FileNode>,
+  tests: readonly string[],
+): CommandFinding {
   const manifestAt = (root: string) => (root === "" ? "package.json" : `${root}/package.json`);
 
   // The package holding most of the related tests, else the repository root.
@@ -893,6 +1208,88 @@ function findCommand(
       priority: "medium",
       status: "found",
       confidence,
+      relationship: null,
+      symbol: null,
+      riskAddressed: null,
+      relatedChangedFiles: [],
+      relatedTestFiles: [],
+      command,
+      workingDirectory: root,
+      evidence,
+    },
+    detail: evidence.join(" "),
+  };
+}
+
+// pytest is named only when the repository shows it is used: its settings in
+// a configuration file it reads, or a test that imports it. A unittest suite
+// pytest would also run is not assumed to be run that way.
+const PYTEST_SETTINGS: { file: string; section: RegExp | null; label: string }[] = [
+  { file: "pytest.ini", section: null, label: "is present" },
+  { file: "pyproject.toml", section: /^\[tool\.pytest\.ini_options\]/m, label: "has a [tool.pytest.ini_options] section" },
+  { file: "tox.ini", section: /^\[pytest\]/m, label: "has a [pytest] section" },
+  { file: "setup.cfg", section: /^\[tool:pytest\]/m, label: "has a [tool:pytest] section" },
+];
+
+function findPytestCommand(
+  files: RepositoryFiles,
+  tests: readonly string[],
+  frameworks: ReadonlySet<string>,
+): CommandFinding {
+  const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+  // The folders above the related tests, nearest first, then the root: where
+  // pytest looks for its configuration.
+  const folders: string[] = [];
+  for (const test of [...tests].sort(byText)) {
+    for (let folder = parentOf(test); ; folder = parentOf(folder)) {
+      if (!folders.includes(folder)) folders.push(folder);
+      if (folder === "") break;
+    }
+  }
+  if (!folders.includes("")) folders.push("");
+
+  let root: string | null = null;
+  const evidence: string[] = [];
+  search: for (const folder of folders) {
+    for (const { file, section, label } of PYTEST_SETTINGS) {
+      const at = folder === "" ? file : `${folder}/${file}`;
+      const text = section === null ? (files.exists(at) ? "" : null) : files.read(at);
+      if (text !== null && (section === null || section.test(text))) {
+        root = folder;
+        evidence.push(`${at} ${label}.`);
+        break search;
+      }
+    }
+  }
+  if (frameworks.has("pytest")) evidence.push("A test file imports pytest.");
+  if (evidence.length === 0) {
+    return {
+      recommendation: null,
+      detail:
+        "No Python test command could be identified: no pytest configuration (pytest.ini, or a pytest section in pyproject.toml, tox.ini or setup.cfg) was found, and no test imports pytest.",
+    };
+  }
+  root ??= "";
+  const local = tests
+    .filter((test) => root === "" || test.startsWith(`${root}/`))
+    .map((test) => (root === "" ? test : test.slice(root.length + 1)));
+  let command = "python -m pytest";
+  let title = "Run the repository's tests";
+  if (local.length > 0 && local.length <= PATHS_IN_COMMAND) {
+    command = `${command} ${local.map(quoted).join(" ")}`;
+    title = `Run the ${plural(local.length, "related test file", "related test files")}`;
+    evidence.push("Narrowed to the related test files: pytest takes file paths.");
+  }
+  return {
+    recommendation: {
+      kind: "test_command",
+      title,
+      description: root === "" ? `Run ${command}.` : `Run ${command} in ${root}.`,
+      rationale:
+        "Built from the repository's pytest configuration or its tests' imports. Impactlia has not run it and has no test results; the project's dependencies must be installed first.",
+      priority: "medium",
+      status: "found",
+      confidence: evidence[0].startsWith("A test file") ? "medium" : "high",
       relationship: null,
       symbol: null,
       riskAddressed: null,

@@ -2,9 +2,11 @@ import "server-only";
 import { after } from "next/server";
 import { findPublicRepository, type PublicRepository } from "@/lib/github/public-repository";
 import { MAX_URL_LENGTH, parseRepositoryUrl } from "@/lib/github/repository-url";
+import { BUDGETS } from "@/lib/ingestion/budgets";
 import { IngestionError } from "@/lib/ingestion/errors";
 import { runPipeline } from "@/lib/ingestion/pipeline";
 import {
+  countActiveWork,
   ensureOrganization,
   findRunningRun,
   hasStoredGraph,
@@ -21,6 +23,8 @@ export type StartOutcome =
   // The repository already has a stored analysis and nothing was started.
   | { kind: "existing"; repositoryId: string };
 
+export const BUSY = `This workspace already has ${BUDGETS.activeRunsPerOrganization} analyses in progress. Try again when one has finished.`;
+
 // The one way a repository run starts.
 //
 // "submit" is someone entering an address: a repository that has already been
@@ -29,7 +33,9 @@ export type StartOutcome =
 // that run back rather than a second one.
 export async function startAnalysis(
   requestedUrl: string,
-  mode: "submit" | "reanalyze",
+  // "rebuild" is "reanalyze" without the stored index: the whole commit is
+  // read again, which recovers from an index that is in doubt.
+  mode: "submit" | "reanalyze" | "rebuild",
 ): Promise<StartOutcome> {
   const workspace = await getWorkspace();
   const client = await createRunSupabaseClient();
@@ -65,6 +71,11 @@ export async function startAnalysis(
   const running = await findRunningRun(client, repositoryId);
   if (running) return { kind: "run", runId: running };
 
+  if ((await countActiveWork(client, workspace.organizationId)) >= BUDGETS.activeRunsPerOrganization) {
+    const runId = await insertFailedSubmission(client, workspace.organizationId, recordedUrl, BUSY);
+    return { kind: "run", runId };
+  }
+
   const runId = await insertRun(client, workspace.organizationId, repositoryId, recordedUrl);
   if (runId === null) {
     // Another submission started one between the check and the insert.
@@ -74,6 +85,6 @@ export async function startAnalysis(
   }
 
   // The response goes back now; the run carries on in this server process.
-  after(() => runPipeline(client, runId, repository));
+  after(() => runPipeline(client, runId, repositoryId, repository, { useIndex: mode !== "rebuild" }));
   return { kind: "run", runId };
 }

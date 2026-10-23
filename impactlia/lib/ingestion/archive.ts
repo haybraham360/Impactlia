@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import zlib from "node:zlib";
 import type { ExclusionRule } from "../../parser/exclusions";
 import { describeSourceFile } from "../../parser/walk";
@@ -10,15 +11,20 @@ import { IngestionError } from "./errors";
 //
 // What reaches the disk:
 //   - directories, and regular files, under the destination and nowhere else;
-//   - the full content of source files and of .json files, which are all the
-//     parser and its resolver ever read;
+//   - the full content of source files, .json files and the few Python
+//     project files that say how tests run, which are all the parser, its
+//     resolvers and the test search ever read;
 //   - every other regular file as an empty file of the same name, so the
 //     parser still reports it as left out without its bytes being stored;
 //   - a directory the parser's rules exclude as an empty directory, so the
 //     parser reports it once, exactly as it would in a checkout, and nothing
 //     beneath it is written.
+//   - a source file larger than `sourceFileBytes` as an empty file, named in
+//     `oversized`, which the parser lists as left out.
 // What never does: symbolic links, hard links, devices, anything with an
 // absolute path or a ".." in it. Nothing is made executable and nothing is run.
+//
+// The archive is read as a stream, as it downloads: it is never stored.
 
 export type ArchiveLimits = {
   // Bytes read out of the compressed stream, whatever is done with them.
@@ -27,8 +33,12 @@ export type ArchiveLimits = {
   writtenBytes: number;
   // Entries of any kind in the archive.
   entries: number;
-  // Files the parser will turn into nodes.
+  // Files the parser will turn into nodes, and of those TypeScript and
+  // JavaScript ones.
   sourceFiles: number;
+  typescriptFiles: number;
+  // One source file larger than this is not written.
+  sourceFileBytes: number;
 };
 
 export type ExtractedArchive = {
@@ -38,9 +48,14 @@ export type ExtractedArchive = {
   writtenBytes: number;
   // Entries that were not written: links, special files and unsafe paths.
   ignoredEntries: number;
+  // Repository paths of source files over the size limit, sorted.
+  oversized: string[];
 };
 
 const BLOCK = 512;
+// Project files the language adapters and the test search read: Python's
+// pytest settings, Go's module path, Cargo's crate names.
+const KEPT_CONFIG = new Set(["pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini", "go.mod", "Cargo.toml"]);
 // Path and metadata records, which are held in memory. Far above any real one.
 const MAX_METADATA_BYTES = 1024 * 1024;
 
@@ -106,7 +121,7 @@ export function repositoryPath(entryName: string): string[] | null {
 }
 
 export async function extractArchive(
-  archiveFile: string,
+  compressed: Readable,
   destination: string,
   rules: ExclusionRule[],
   limits: ArchiveLimits,
@@ -121,7 +136,9 @@ export async function extractArchive(
     sourceFiles: 0,
     writtenBytes: 0,
     ignoredEntries: 0,
+    oversized: [],
   };
+  let typescriptFiles = 0;
   let entries = 0;
   let unpackedBytes = 0;
   const madeDirectories = new Set<string>();
@@ -195,18 +212,34 @@ export async function extractArchive(
     if (isDirectory) return;
 
     const fileName = segments[segments.length - 1];
-    const isSource = describeSourceFile(fileName) !== null;
+    const source = describeSourceFile(fileName);
+    const isSource = source !== null;
+    if (isSource && size > limits.sourceFileBytes) {
+      // An empty file in its place, so an import of it still resolves to it
+      // and is reported as an import of an excluded file.
+      result.oversized.push(segments.join("/"));
+      fs.closeSync(fs.openSync(inside(segments), "w", 0o644));
+      return;
+    }
+    if (source && (source.language === "typescript" || source.language === "javascript")) {
+      typescriptFiles += 1;
+      if (typescriptFiles > limits.typescriptFiles) {
+        throw new IngestionError(
+          `The repository has more than ${limits.typescriptFiles.toLocaleString("en")} TypeScript and JavaScript files, which is over the limit for one analysis.`,
+        );
+      }
+    }
     if (isSource) {
       result.sourceFiles += 1;
       if (result.sourceFiles > limits.sourceFiles) {
         throw new IngestionError(
-          `The repository has more than ${limits.sourceFiles.toLocaleString("en")} TypeScript and JavaScript files, which is over the limit for one analysis.`,
+          `The repository has more than ${limits.sourceFiles.toLocaleString("en")} source files in supported languages, which is over the limit for one analysis.`,
         );
       }
     }
     // 0o644: readable, never executable.
     const descriptor = fs.openSync(inside(segments), "w", 0o644);
-    if (isSource || path.extname(fileName).toLowerCase() === ".json") {
+    if (isSource || path.extname(fileName).toLowerCase() === ".json" || KEPT_CONFIG.has(fileName)) {
       sink = { kind: "file", descriptor };
     } else {
       fs.closeSync(descriptor);
@@ -291,7 +324,6 @@ export async function extractArchive(
     pending = Buffer.from(data);
   }
 
-  const compressed = fs.createReadStream(archiveFile);
   const unpacked = compressed.pipe(zlib.createGunzip());
   // pipe() does not pass a read error on, and the loop below would wait forever.
   compressed.on("error", (error) => unpacked.destroy(error));
@@ -321,5 +353,6 @@ export async function extractArchive(
   if (inEntry && remaining > 0) {
     throw new IngestionError("The archive GitHub returned ended early and could not be unpacked.");
   }
+  result.oversized.sort();
   return result;
 }

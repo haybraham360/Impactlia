@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { Readable, Transform } from "node:stream";
 import { IngestionError } from "../ingestion/errors";
 import type { RepositoryAccess, RepositoryReference } from "./repository-url";
 
@@ -32,7 +32,9 @@ export const HEADERS = {
   "User-Agent": "Impactlia",
 };
 export const REQUEST_TIMEOUT_MS = 15_000;
-const DOWNLOAD_TIMEOUT_MS = 120_000;
+// The whole archive, read as it is unpacked. The pipeline's own time limit
+// (PROCESSING_LIMIT_MS) is the one that usually ends a slow download first.
+const DOWNLOAD_TIMEOUT_MS = 180_000;
 
 const timeFormat = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
@@ -183,14 +185,32 @@ export async function findHeadCommit(
   return sha;
 }
 
-// Downloads the archive of exactly one commit. Stops, and fails, as soon as
-// the download passes `maxBytes`.
-export async function downloadArchive(
+// A response body as chunks. When the reader stops early, because the
+// archive was refused part-way, the download is cancelled too.
+async function* readChunks(stream: ReadableStream<Uint8Array>): AsyncGenerator<Uint8Array> {
+  const reader = stream.getReader();
+  let finished = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        finished = true;
+        return;
+      }
+      yield value;
+    }
+  } finally {
+    if (!finished) await reader.cancel().catch(() => undefined);
+  }
+}
+
+// The archive of exactly one commit, as a stream to unpack while it
+// downloads. Fails, and stops the download, as soon as it passes `maxBytes`.
+export async function openArchive(
   repository: RepositoryAccess,
   commitSha: string,
-  file: string,
   maxBytes: number,
-): Promise<void> {
+): Promise<Readable> {
   const response = await request(
     `${repositoryApi(repository)}/tarball/${commitSha}`,
     HEADERS.Accept,
@@ -200,34 +220,31 @@ export async function downloadArchive(
   if (!response.ok) throw refusal(response, repository);
   if (!response.body) throw new Error("GitHub's archive response had no body.");
 
-  const tooLarge = new IngestionError(
-    `The repository's archive is larger than ${Math.round(maxBytes / 1024 / 1024)} MB, which is over the limit for one analysis.`,
-  );
+  const tooLarge = () =>
+    new IngestionError(
+      `The repository's archive is larger than ${Math.round(maxBytes / 1024 / 1024)} MB, which is over the limit for downloading one commit.`,
+    );
   if (Number(response.headers.get("content-length")) > maxBytes) {
     await response.body.cancel();
-    throw tooLarge;
+    throw tooLarge();
   }
-
-  const reader = response.body.getReader();
-  const descriptor = fs.openSync(file, "w", 0o600);
   let received = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      received += value.length;
-      if (received > maxBytes) throw tooLarge;
-      fs.writeSync(descriptor, value);
-    }
-  } catch (error) {
-    await reader.cancel().catch(() => undefined);
-    if (error instanceof IngestionError) throw error;
-    throw new IngestionError("The download from GitHub was interrupted. Try again in a moment.", {
-      retryable: true,
-    });
-  } finally {
-    fs.closeSync(descriptor);
-  }
+  const counted = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      received += chunk.length;
+      done(received > maxBytes ? tooLarge() : null, chunk);
+    },
+  });
+  const body = Readable.from(readChunks(response.body));
+  // A network failure part-way is GitHub's, and worth trying again.
+  body.on("error", () => {
+    counted.destroy(
+      new IngestionError("The download from GitHub was interrupted. Try again in a moment.", {
+        retryable: true,
+      }),
+    );
+  });
+  return body.pipe(counted);
 }
 
 // One file exactly as it was at one commit. Refuses a file over `maxBytes`

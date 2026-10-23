@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import { parseRepository } from "../../../parser/parse-repository";
 import type { ParserOutput } from "../../../parser/contract";
 import { analyseImpact } from "../analyze";
 import type { ChangeType, PullRequestChanges, ReportFile } from "../report";
 import { DIRECT_DEPENDENTS_HIGH, REACH_MEDIUM } from "../risk";
+import { loadGrammars, type Grammars } from "../../../parser/languages/tree-sitter";
+
+// The parser's grammars load asynchronously, once, before any test; the
+// shared fixture below is parsed in the same hook, after them.
+let grammars: Grammars;
 
 // Run with `pnpm check:impact`. Nothing here touches the network. Each
 // repository is written out below and parsed by the real parser, so every
@@ -21,7 +26,7 @@ function parse(files: Record<string, string>): ParserOutput {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, content);
     }
-    return parseRepository(root, []);
+    return parseRepository(root, grammars);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -49,7 +54,11 @@ const changes = (...files: ReturnType<typeof change>[]): PullRequestChanges => (
 //                   src/b.ts ──────────────────▶ src/core.ts
 //   src/format.test.ts ──▶ src/format.ts
 //   src/new.ts imports nothing and nothing imports it.
-const repository = parse({
+// Parsed once the grammars have loaded.
+let repository: ParserOutput;
+before(async () => {
+  grammars = await loadGrammars();
+  repository = parse({
   "README.md": "# Example\n",
   "src/core.ts": "export const core = 1;\n",
   "src/format.ts": 'import { core } from "./core";\nexport const format = () => core;\n',
@@ -59,6 +68,7 @@ const repository = parse({
   "src/format.test.ts": 'import { format } from "./format";\nformat();\n',
   "src/page.ts": 'import { a } from "./a";\nexport default a;\n',
   "src/new.ts": "export const fresh = true;\n",
+});
 });
 
 const pullRequest = changes(

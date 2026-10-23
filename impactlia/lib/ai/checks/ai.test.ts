@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import type { ParserOutput } from "../../../parser/contract";
 import { parseRepository } from "../../../parser/parse-repository";
 import { MODEL } from "../config";
@@ -25,6 +25,11 @@ import {
   type TracedEnvironment,
   type TracedTask,
 } from "../traced";
+import { loadGrammars, type Grammars } from "../../../parser/languages/tree-sitter";
+
+// The parser's grammars load asynchronously, once, before any test; the
+// shared fixture below is parsed in the same hook, after them.
+let grammars: Grammars;
 
 // Run with `pnpm check:ai`. Nothing here calls a model, a database or the
 // network: the model, the cache and the trace are stand-ins defined below, and
@@ -49,7 +54,7 @@ function parse(files: Record<string, string>): ParserOutput {
       fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
       fs.writeFileSync(path.join(directory, file), content);
     }
-    return parseRepository(directory);
+    return parseRepository(directory, grammars);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -61,7 +66,12 @@ const FOLDERS: FoldedFolder[] = [
   { id: "src", files: ["src/app.ts"] },
   { id: "src/lib", files: ["src/lib/core.ts", "src/lib/format.ts"] },
 ];
-const output = parse(FILES);
+// Parsed once the grammars have loaded.
+let output: ParserOutput;
+before(async () => {
+  grammars = await loadGrammars();
+  output = parse(FILES);
+});
 
 function fileEvidence(from: ParserOutput, file: string, sha: string | null = SHA) {
   const evidence = buildFileEvidence(from, file, sha);

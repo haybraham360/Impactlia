@@ -113,7 +113,9 @@ export type CodeIssueCategory = "syntax" | "type";
 // Only "confirmed" exists so far: every issue is a compiler diagnostic. The
 // conditions it was confirmed under are part of the issue.
 export type CodeIssueStatus = "confirmed";
-export type CodeIssueSource = "compiler";
+// "compiler" is the TypeScript compiler and parser; "tree-sitter" is the
+// Python parser.
+export type CodeIssueSource = "compiler" | "tree-sitter";
 
 // A file that imports the file an issue is in. That is a relationship in the
 // graph, not evidence that the issue reaches it.

@@ -1,3 +1,13 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+  # tree-sitter grammars: only their .wasm files are used; the native
+  # bindings they would build are not.
+  tree-sitter-python: false
+  tree-sitter-java: false
+  tree-sitter-go: false
+  tree-sitter-c-sharp: false
+  tree-sitter-c: false
+  tree-sitter-cpp: false
+  tree-sitter-rust: false
+  tree-sitter-php: false

@@ -8,13 +8,8 @@ import {
   completeRun,
   failRun,
 } from "@/lib/ingestion/runs";
-import {
-  checkedGraph,
-  createWorkDirectory,
-  downloadCommit,
-  parseSource,
-  unpackCommit,
-} from "@/lib/ingestion/source";
+import { buildCommitGraph, createWorkDirectory } from "@/lib/ingestion/source";
+import { loadGrammars } from "@/parser/languages/tree-sitter";
 import { PROCESSING_LIMIT_MS, stageOf, type StageId } from "@/lib/ingestion/stages";
 import type { SupabaseClient } from "@/lib/supabase/server";
 
@@ -35,7 +30,9 @@ function reasonFor(error: unknown, stage: StageId, runId: string): string {
 export async function runPipeline(
   client: SupabaseClient,
   runId: string,
+  repositoryId: string,
   repository: PublicRepository,
+  { useIndex }: { useIndex: boolean },
 ): Promise<void> {
   const startedAt = Date.now();
   let stage: StageId = "fetching";
@@ -55,16 +52,24 @@ export async function runPipeline(
   try {
     directory = createWorkDirectory();
     const requestedSha = await findHeadCommit(repository);
-    const archive = await downloadCommit(repository, requestedSha, directory);
 
     await enter("preparing");
-    const { source, commitSha } = await unpackCommit(archive, directory, requestedSha, repository);
+    const grammars = await loadGrammars();
 
+    // Reading the files and parsing them happen together: the selective path
+    // downloads only what it parses.
     await enter("parsing");
-    const output = parseSource(source);
+    const { graph: stored, commitSha } = await buildCommitGraph(
+      client,
+      repositoryId,
+      repository,
+      requestedSha,
+      directory,
+      grammars,
+      { useIndex },
+    );
 
     await enter("calculating");
-    const stored = checkedGraph(output);
 
     await enter("saving");
     await completeRun(client, runId, commitSha, stored);

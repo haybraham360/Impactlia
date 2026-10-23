@@ -2,13 +2,20 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import { parseRepository } from "../../../parser/parse-repository";
 import { calculateBlastRadius, mapChangedFiles } from "../analyze";
 import { collectCodeIssues, planCodeCheck } from "../code-issues";
 import { addedLines } from "../patch";
 import type { ChangeType, LineRange, PullRequestFile } from "../report";
 import { typeCheckFiles } from "../type-check";
+import { loadGrammars, type Grammars } from "../../../parser/languages/tree-sitter";
+
+// The parser's grammars load asynchronously, once, before any test.
+let grammars: Grammars;
+before(async () => {
+  grammars = await loadGrammars();
+});
 
 // Run with `pnpm check:impact`. Nothing here touches the network. Each
 // repository is written out below, parsed by the real parser and checked by
@@ -45,7 +52,7 @@ function check(files: Record<string, string>, changed: PullRequestFile[]) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, content);
     }
-    const output = parseRepository(root, []);
+    const output = parseRepository(root, grammars);
     const changes = { files: changed, complete: true, reportedFileCount: changed.length };
     const mapping = mapChangedFiles(output, changes);
     const radius = calculateBlastRadius(output, mapping.starts);

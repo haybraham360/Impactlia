@@ -2,7 +2,9 @@ import "server-only";
 import type { PublicRepository } from "@/lib/github/public-repository";
 import { STALE_AFTER_MS, isStale, type RunStatus, type StageId } from "@/lib/ingestion/stages";
 import { createSupabaseClient, type SupabaseClient } from "@/lib/supabase/server";
+import type { StoredIndex } from "@/lib/ingestion/selective";
 import type { ParserOutput } from "@/parser/contract";
+import { readParserOutput } from "@/parser/validate";
 
 // Every read and write of repositories, their runs and their graphs. None of
 // the queries filters by organization: the request carries the member's token
@@ -261,6 +263,53 @@ export async function hasStoredGraph(
     .maybeSingle();
   if (error) throw new Error(`The stored analysis could not be checked: ${error.message}`);
   return data !== null;
+}
+
+// How many repository runs and pull request analyses this organization has
+// in progress now. One that has reported nothing for STALE_AFTER_MS is
+// counted out: its process has almost certainly stopped.
+export async function countActiveWork(client: SupabaseClient, organizationId: string): Promise<number> {
+  const since = new Date(Date.now() - STALE_AFTER_MS).toISOString();
+  const [runs, analyses] = await Promise.all([
+    client
+      .from("repository_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status", "running")
+      .gte("progressed_at", since),
+    client
+      .from("analyses")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status", "running")
+      .gte("progressed_at", since),
+  ]);
+  const error = runs.error ?? analyses.error;
+  if (error) throw new Error(`Work in progress could not be counted: ${error.message}`);
+  return (runs.count ?? 0) + (analyses.count ?? 0);
+}
+
+// The repository's stored graph and the commit it is of, as the index the
+// selective path updates (lib/ingestion/selective.ts). null when there is
+// none, or when what is stored no longer passes the parser contract: then
+// it is not an index to build on, and the commit is read in full.
+export async function readStoredIndex(
+  client: SupabaseClient,
+  repositoryId: string,
+): Promise<StoredIndex | null> {
+  const { data, error } = await client
+    .from("repository_graphs")
+    .select("parser_output, run:repository_runs!repository_graphs_run_fkey (source_sha)")
+    .eq("repository_id", repositoryId)
+    .maybeSingle();
+  if (error) throw new Error(`The stored analysis could not be read: ${error.message}`);
+  const commitSha = data?.run.source_sha ?? null;
+  if (!data || commitSha === null) return null;
+  try {
+    return { output: readParserOutput(data.parser_output), commitSha };
+  } catch {
+    return null;
+  }
 }
 
 export async function findRunningRun(

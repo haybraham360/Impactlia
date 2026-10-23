@@ -26,8 +26,8 @@ export function RepositoryForm() {
         <SubmitButton pendingLabel="Checking the repository…">Analyze repository</SubmitButton>
       </div>
       <p id="repository-url-help" className="mt-2 max-w-prose text-sm text-muted">
-        The default branch is downloaded from GitHub and its TypeScript and JavaScript
-        imports are mapped. Nothing in the repository is run, and no GitHub sign-in
+        The default branch is downloaded from GitHub and the imports between its source
+        files are mapped. Nothing in the repository is run, and no GitHub sign-in
         or permission is asked for. A repository that has already been analyzed opens
         its stored analysis.
       </p>

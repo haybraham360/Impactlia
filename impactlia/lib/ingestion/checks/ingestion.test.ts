@@ -2,14 +2,21 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import zlib from "node:zlib";
-import { coreExclusionRules } from "../../../parser/exclusions";
+import { coreExclusionRules, oversizedFileRule } from "../../../parser/exclusions";
 import { parseRepository } from "../../../parser/parse-repository";
 import { parseRepositoryUrl } from "../../github/repository-url";
 import { summariseCoverage } from "../../graph/coverage";
 import { extractArchive, repositoryPath, type ArchiveLimits } from "../archive";
 import { IngestionError } from "../errors";
+import { loadGrammars, type Grammars } from "../../../parser/languages/tree-sitter";
+
+// The parser's grammars load asynchronously, once, before any test.
+let grammars: Grammars;
+before(async () => {
+  grammars = await loadGrammars();
+});
 
 // Run with `pnpm check:ingestion`. Nothing here touches the network: the
 // archives are built below, entry by entry, so each one's contents can be read
@@ -67,6 +74,8 @@ const LIMITS: ArchiveLimits = {
   writtenBytes: 1024 * 1024,
   entries: 1000,
   sourceFiles: 100,
+  typescriptFiles: 100,
+  sourceFileBytes: 1024 * 1024,
 };
 
 // Each test works in its own directory and removes it, whatever happens.
@@ -161,7 +170,7 @@ test("extraction writes what the parser reads and reports the archive's commit",
     { name: "o-r-abc/dist/bundle.js", content: "var x;" },
   ]);
   await withArchive(bytes, async (archiveFile, destination) => {
-    const result = await extractArchive(archiveFile, destination, coreExclusionRules, LIMITS);
+    const result = await extractArchive(fs.createReadStream(archiveFile), destination, coreExclusionRules, LIMITS);
     assert.equal(result.commitSha, SHA);
     assert.equal(result.sourceFiles, 2);
     assert.equal(result.ignoredEntries, 0);
@@ -182,7 +191,7 @@ test("extraction writes what the parser reads and reports the archive's commit",
     assert.equal(fs.statSync(path.join(destination, "src/index.ts")).mode & 0o111, 0);
 
     // The existing parser reads the result as it would a checkout.
-    const output = parseRepository(destination);
+    const output = parseRepository(destination, grammars);
     assert.deepEqual(output.files.map((file) => file.id), ["src/a.ts", "src/index.ts"]);
     assert.deepEqual(
       output.edges.map((edge) => `${edge.source} -> ${edge.target}`),
@@ -204,7 +213,7 @@ test("extraction writes what the parser reads and reports the archive's commit",
 
 test("an archive that does not state its commit yields no commit", async () => {
   await withArchive(archive([{ name: "o-r-abc/a.ts", content: "" }], null), async (file, destination) => {
-    const result = await extractArchive(file, destination, coreExclusionRules, LIMITS);
+    const result = await extractArchive(fs.createReadStream(file), destination, coreExclusionRules, LIMITS);
     assert.equal(result.commitSha, null);
   });
 });
@@ -222,7 +231,7 @@ test("nothing is written outside the destination, and links are never created", 
     { name: "o-r-abc/short.ts", content: "escaped" },
   ]);
   await withArchive(bytes, async (archiveFile, destination, workspace) => {
-    const result = await extractArchive(archiveFile, destination, coreExclusionRules, LIMITS);
+    const result = await extractArchive(fs.createReadStream(archiveFile), destination, coreExclusionRules, LIMITS);
     assert.equal(result.ignoredEntries, 6);
     assert.deepEqual(listing(destination), ["ok.ts"]);
     // The directories above the destination hold only what the test put there.
@@ -237,11 +246,14 @@ test("each limit stops extraction with a message naming it", async () => {
     content: "export {};",
   }));
   const cases: [string, Buffer, Partial<ArchiveLimits>, RegExp][] = [
-    ["source files", archive(many), { sourceFiles: 4 }, /more than 4 TypeScript and JavaScript files/],
+    ["source files", archive(many), { sourceFiles: 4 }, /more than 4 source files in supported languages/],
+    ["TypeScript files", archive(many), { typescriptFiles: 4 }, /more than 4 TypeScript and JavaScript files/],
     ["entries", archive(many), { entries: 3 }, /more than 3 files and folders/],
     [
       "written bytes",
-      archive([{ name: "o-r-abc/big.ts", content: "x".repeat(3 * 1024 * 1024) }]),
+      // JSON is written in full and held only to the total; a source file this
+      // large is left out by the per-file limit instead (tested below).
+      archive([{ name: "o-r-abc/big.json", content: "x".repeat(3 * 1024 * 1024) }]),
       { writtenBytes: 2 * 1024 * 1024 },
       /larger than 2 MB/,
     ],
@@ -256,7 +268,7 @@ test("each limit stops extraction with a message naming it", async () => {
   for (const [label, bytes, limit, message] of cases) {
     await withArchive(bytes, async (archiveFile, destination) => {
       await assert.rejects(
-        extractArchive(archiveFile, destination, coreExclusionRules, { ...LIMITS, ...limit }),
+        extractArchive(fs.createReadStream(archiveFile), destination, coreExclusionRules, { ...LIMITS, ...limit }),
         (error) => error instanceof IngestionError && message.test(error.message),
         label,
       );
@@ -270,9 +282,40 @@ test("a damaged archive fails with a message rather than a partial result", asyn
   for (const bytes of [whole.subarray(0, whole.length - 20), Buffer.from("not gzip at all"), corruptHeader]) {
     await withArchive(bytes, async (archiveFile, destination) => {
       await assert.rejects(
-        extractArchive(archiveFile, destination, coreExclusionRules, LIMITS),
+        extractArchive(fs.createReadStream(archiveFile), destination, coreExclusionRules, LIMITS),
         IngestionError,
       );
     });
   }
+});
+
+test("a source file over the size limit is named, not written, and the parser lists it as left out", async () => {
+  const bytes = archive([
+    { name: "o-r-abc/small.ts", content: 'import "./big";\n' },
+    { name: "o-r-abc/big.ts", content: "x".repeat(2048) },
+    { name: "o-r-abc/big.json", content: JSON.stringify({ data: "y".repeat(2048) }) },
+  ]);
+  await withArchive(bytes, async (archiveFile, destination) => {
+    const result = await extractArchive(fs.createReadStream(archiveFile), destination, coreExclusionRules, {
+      ...LIMITS,
+      sourceFileBytes: 1024,
+    });
+    assert.deepEqual(result.oversized, ["big.ts"]);
+    assert.equal(fs.statSync(path.join(destination, "big.ts")).size, 0);
+    // Only source files are held to the per-file limit.
+    assert.ok(fs.statSync(path.join(destination, "big.json")).size > 2000);
+    const output = parseRepository(destination, grammars, [], {
+      excludedFiles: new Map(result.oversized.map((file) => [file, oversizedFileRule.id])),
+    });
+    assert.deepEqual(output.files.map((file) => file.path), ["small.ts"]);
+    assert.deepEqual(
+      output.excluded.filter((entry) => entry.rule === "oversized-file"),
+      [{ path: "big.ts", type: "file", rule: "oversized-file" }],
+    );
+    // The import of it is accounted for as an import of an excluded file.
+    assert.deepEqual(
+      output.unlinkedReferences.map((reference) => [reference.specifier, reference.status]),
+      [["./big", "excluded"]],
+    );
+  });
 });
