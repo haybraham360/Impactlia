@@ -418,7 +418,15 @@ function readTestDiscovery(value: Json | null): TestDiscovery | null {
   };
 }
 
-export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
+// Takes the analysis id and the pending read of the run, so that the report's
+// rows are requested at the same time as the run instead of after it: only
+// the list of other analyses needs the run (for its pull request). An id
+// that is not a UUID is refused before any request, as getAnalysis does.
+export async function getStoredReport(
+  analysisId: string,
+  pendingRun: Promise<AnalysisRun | null>,
+): Promise<StoredReport> {
+  if (!UUID.test(analysisId)) throw new Error("The report could not be read: not an analysis id.");
   const client = createSupabaseClient();
   const [
     analysis,
@@ -434,21 +442,21 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
       client
         .from("analyses")
         .select("limitations, code_check, risk_assessment, test_discovery")
-        .eq("id", run.id)
+        .eq("id", analysisId)
         .single(),
       client
         .from("analysis_files")
         .select(
           "path, change_type, previous_path, additions, deletions, patch_available, analysis_state, state_reason",
         )
-        .eq("analysis_id", run.id)
+        .eq("analysis_id", analysisId)
         .eq("kind", "changed")
         .order("path")
         .limit(CHANGED_FILE_LIMIT),
       client
         .from("analysis_files")
         .select("path, impact_depth, dependency_path, route_count")
-        .eq("analysis_id", run.id)
+        .eq("analysis_id", analysisId)
         .eq("kind", "affected")
         .order("impact_depth")
         .order("path")
@@ -456,19 +464,19 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
       client
         .from("analysis_risk_signals")
         .select("id, signal, level, detail")
-        .eq("analysis_id", run.id)
+        .eq("analysis_id", analysisId)
         .order("signal")
         .limit(FINDING_LIMIT),
       client
         .from("analysis_recommendations")
         .select("id, position, body, reason, origin")
-        .eq("analysis_id", run.id)
+        .eq("analysis_id", analysisId)
         .order("position")
         .limit(FINDING_LIMIT),
       client
         .from("analysis_evidence")
         .select("risk_signal_id, recommendation_id, file:analysis_files (path)")
-        .eq("analysis_id", run.id)
+        .eq("analysis_id", analysisId)
         .not("file_id", "is", null)
         .limit(EVIDENCE_LIMIT),
       client
@@ -476,7 +484,7 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
         .select(
           "title, category, severity, status, source, rule_id, start_line, start_column, end_line, end_column, message, conditions, related_files, related_file_count, file:analysis_files!inner (path)",
         )
-        .eq("analysis_id", run.id)
+        .eq("analysis_id", analysisId)
         .order("position")
         .limit(ISSUE_LIMIT),
       client
@@ -484,16 +492,23 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
         .select(
           "kind, title, description, rationale, priority, status, confidence, relationship, symbol, risk_addressed, related_changed_files, related_test_files, command, working_directory, evidence",
         )
-        .eq("analysis_id", run.id)
+        .eq("analysis_id", analysisId)
         .order("position")
         .limit(TEST_RECOMMENDATION_LIMIT),
-      client
-        .from("analyses")
-        .select("id, status, head_sha, created_at")
-        .eq("pull_request_id", run.pullRequest.id)
-        .neq("id", run.id)
-        .order("created_at", { ascending: false })
-        .limit(OTHER_RUN_LIMIT),
+      // The one read that needs the run: it is asked for as soon as the run
+      // arrives, while the others are still in flight.
+      pendingRun.then(async (run) => {
+        if (!run) return [];
+        const { data, error } = await client
+          .from("analyses")
+          .select("id, status, head_sha, created_at")
+          .eq("pull_request_id", run.pullRequest.id)
+          .neq("id", run.id)
+          .order("created_at", { ascending: false })
+          .limit(OTHER_RUN_LIMIT);
+        if (error) throw new Error(`The report could not be read: ${error.message}`);
+        return data;
+      }),
     ]);
   const failed = [
     analysis,
@@ -504,7 +519,6 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
     evidence,
     codeIssues,
     testRecommendations,
-    otherRuns,
   ].find(
     (result) => result.error,
   );
@@ -587,7 +601,7 @@ export async function getStoredReport(run: AnalysisRun): Promise<StoredReport> {
       workingDirectory: row.working_directory,
       evidence: strings(row.evidence),
     })),
-    otherRuns: (otherRuns.data ?? []).map((row) => ({
+    otherRuns: otherRuns.map((row) => ({
       id: row.id,
       status: row.status,
       headSha: row.head_sha,
