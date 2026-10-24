@@ -8,7 +8,12 @@ import { ImpactReport } from "@/components/impact-report";
 import { RunProgress } from "@/components/run-progress";
 import { findPullRequest, type PullRequest } from "@/lib/github/pull-request";
 import { repositoryUrl } from "@/lib/github/repository-url";
-import { getAnalysis, getStoredReport, type AnalysisRun } from "@/lib/impact/runs";
+import {
+  getAnalysis,
+  getStoredReport,
+  type AnalysisRun,
+  type StoredReport,
+} from "@/lib/impact/runs";
 import { ANALYSIS_STAGES, analysisTopic } from "@/lib/impact/stages";
 import { IngestionError } from "@/lib/ingestion/errors";
 import { WORKSPACE_PATH, analysisPath, pullRequestsPath } from "@/lib/routes";
@@ -83,8 +88,8 @@ async function Freshness({ run }: { run: AnalysisRun }) {
   );
 }
 
-async function Report({ run }: { run: AnalysisRun }) {
-  const report = await getStoredReport(run);
+async function Report({ run, pending }: { run: AnalysisRun; pending: Promise<StoredReport> }) {
+  const report = await pending;
   return (
     <>
       {run.graphSha !== null && run.graphSha !== run.headSha && (
@@ -126,7 +131,15 @@ async function Analysis({ params }: { params: Promise<{ analysisId: string }> })
   const { analysisId } = await params;
   // An analysis in another organization is not found, the same as one that
   // does not exist: the database returns neither.
-  const run = await getAnalysis(analysisId);
+  //
+  // The report's rows are requested alongside the run rather than after it,
+  // which saves a round trip to the database on every open. They are used
+  // only for a completed run; for any other the read goes unused, so its
+  // failure is caught here and surfaces only where it is awaited.
+  const pendingRun = getAnalysis(analysisId);
+  const pendingReport = getStoredReport(analysisId, pendingRun);
+  pendingReport.catch(() => {});
+  const run = await pendingRun;
   if (!run) notFound();
   const pullRequestUrl = `${repositoryUrl(run.repository)}/pull/${run.pullRequest.number}`;
 
@@ -194,7 +207,7 @@ async function Analysis({ params }: { params: Promise<{ analysisId: string }> })
           <Suspense>
             <Freshness run={run} />
           </Suspense>
-          <Report run={run} />
+          <Report run={run} pending={pendingReport} />
         </>
       ) : (
         <div className="mt-6">

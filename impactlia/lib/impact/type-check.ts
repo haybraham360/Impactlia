@@ -133,7 +133,10 @@ export function typeCheckFiles(
     let folder = path.posix.dirname(file);
     for (;;) {
       for (const name of CONFIG_NAMES) {
-        const candidate = path.join(root, folder === "." ? "" : folder, name);
+        // root is the downloaded repository, known only at run time. Without
+        // the ignore comment the bundler traces the whole project into every
+        // route that imports the analysis.
+        const candidate = path.join(/*turbopackIgnore: true*/ root, folder === "." ? "" : folder, name);
         if (fs.existsSync(candidate)) return candidate;
       }
       if (folder === "." || folder === "") return null;
