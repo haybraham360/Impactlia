@@ -11,3 +11,5 @@ allowBuilds:
   tree-sitter-cpp: false
   tree-sitter-rust: false
   tree-sitter-php: false
+  # Pulled in by posthog-js; its install script only prints a funding notice.
+  core-js: false
