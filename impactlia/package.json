@@ -24,6 +24,7 @@
     "langsmith": "^0.10.11",
     "next": "16.4.2",
     "openai": "^7.32.0",
+    "posthog-js": "^1.438.19",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tree-sitter-c": "0.24.1",
